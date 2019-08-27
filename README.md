@@ -7,7 +7,7 @@ __Authors:__ María Ignacia Rivera-Hechem<sup>1,2</sup>, Ricardo Andrés Guzmán
 3. Center of Applied Ecology and Sustainability (CAPES), Departamento de Ecología, Facultad de Ciencias Biológicas, Pontificia Universidad Católica de Chile, Chile
 4. Laboratorio Internacional en Cambio Global, Consejo Superior de Investigaciones Científicas (CSIC) & Pontificia Universidad Católica de Chile (PUC), España-Chile
 
-\* Correspondence to: María Ignacia Rivera Hechem, Bren School of Environmental Science and Management, University of California, Santa Barbara, CA 93106, mrivera@bren.ucsb.edu, +1 (805) 893-7611.
+__Correspondence to:__ María Ignacia Rivera Hechem, Bren School of Environmental Science and Management, University of California, Santa Barbara, CA 93106, mrivera@bren.ucsb.edu, +1 (805) 893-7611.
 
 ## This repository
 
