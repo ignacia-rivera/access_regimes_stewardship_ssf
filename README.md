@@ -9,6 +9,8 @@ __Authors:__ María Ignacia Rivera-Hechem<sup>1,2</sup>, Ricardo Andrés Guzmán
 
 \* Correspondence to: María Ignacia Rivera Hechem, Bren School of Environmental Science and Management, University of California, Santa Barbara, CA 93106, mrivera@bren.ucsb.edu, +1 (805) 893-7611.
 
+## This repository
+
 This repository contains data and code used to generate the manuscript "Exploring the role of access regimes over internalized  stewardship behaviors of small-scale fishers". 
 
 Here follows an overview of the folders in this repository:
