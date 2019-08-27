@@ -1,6 +1,17 @@
 # access_regimes_stewardship_ssf
 
-This repository contains data and code used to generate the manuscript "Exploring the role of access regimes over internalized  stewardship behaviors of small-scale fishers". Here follows an overview of the folders in this repository:
+__Authors:__ María Ignacia Rivera-Hechem<sup>1,2</sup>, Ricardo Andrés Guzmán<sup>1</sup>, Carlos Rodríguez-Sickert<sup>1</sup>, Stefan Gelcich<sup>3,4</sup>
+
+1. Centro de Investigación en Complejidad Social (CICS), Facultad de Gobierno, Universidad del Desarrollo, Santiago, Chile
+2. Latin American Fisheries Fellow
+3. Center of Applied Ecology and Sustainability (CAPES), Departamento de Ecología, Facultad de Ciencias Biológicas, Pontificia Universidad Católica de Chile, Chile
+4. Laboratorio Internacional en Cambio Global, Consejo Superior de Investigaciones Científicas (CSIC) & Pontificia Universidad Católica de Chile (PUC), España-Chile
+
+\* Correspondence to: María Ignacia Rivera Hechem, Bren School of Environmental Science and Management, University of California, Santa Barbara, CA 93106, mrivera@bren.ucsb.edu, +1 (805) 893-7611.
+
+This repository contains data and code used to generate the manuscript "Exploring the role of access regimes over internalized  stewardship behaviors of small-scale fishers". 
+
+Here follows an overview of the folders in this repository:
 
 **1. Data**: stores the raw database called "DB_fishers.csv", which is the output from our experiment. In addition, it stores the intermediate databases generated for data analysis.
 
