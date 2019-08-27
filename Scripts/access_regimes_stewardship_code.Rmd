@@ -1,0 +1,1021 @@
+---
+title: "Analysis Access Regimes"
+author: "Ignacia Rivera"
+date: "May 2, 2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(magrittr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(gridExtra)
+library(lubridate)
+library(foreign)
+library(readr)
+library(plm)
+library(stargazer)
+library(lmtest)
+library(plotrix)
+library(RCurl)
+library(miceadds)
+library(ggiraphExtra)
+library(BBmisc)
+library(estimatr)
+library(lfe)
+```
+
+## Metadata 
+
+1) union: location
+ 
+- El Quisco = 1
+- Maitencillo = 2
+- Las Cruces = 3
+- La Boca = 4
+- UDD = 5
+- El Quisco (second time) = 6
+- Quintero = 7
+
+2) performance: type of association or student
+
+- High performance =1
+- Low performance =2 
+- Student = 3
+
+3) framing: framing under which the game was played
+
+- Loco = 1 
+- Merluza = 2 
+- Money = 3
+
+4) id: subjects id for the session (10 random numbers that are repeated each session)
+
+5) group: id for the group in which the subject play in a session (1 or 2)
+
+6) round: round of the game (from 1 to 26)
+
+7) trial: whether the round was real or a trial
+
+- Real = 0 
+- Trial = 1 
+
+8) overextraction: number of units overharvested by a subject in a given round (from 0 to 50)
+
+9) observer: the role assigned to that subject in that round 
+
+- Observer = 1
+- Nothing = -1
+- Observed = 0
+- Round with no observation = -1
+
+10) overextract_observed: overextraction performed by the subject being inspected by the subject (from 0 to 50)
+
+- Round with no observation = -1
+
+11) report: whether the subject reported a parnter's violation when having the chance
+
+- Yes = 1
+- No = 0
+- Round with no obsrevation = 0
+
+12) punished: whether the subject got punished after being observed violating the quota 
+
+- Yes = 1
+- No = 0
+- Round with no obsrevation = 0
+
+13) round_profit: profit made by the subject in a given round(from 0 to 1500)
+
+```{r rcreates clean database for paper, echo = FALSE, message=FALSE, warning=FALSE, include=FALSE}
+
+DB <- read_csv("C:/Users/Ignacia Rivera/Box Sync/Ignacia (m_i_rivera@ucsb.edu)/Papers/Paper_Turfs_Cooperation/Results/Clean/DB.csv")
+cols(
+  union = col_integer(),
+  performance = col_integer(),
+  framing = col_integer(),
+  id = col_integer(),
+  group = col_integer(),
+  round = col_integer(),
+  trial = col_integer(),
+  overextraction = col_integer(),
+  observer = col_integer(),
+  overext_observed = col_integer(),
+  report = col_integer(),
+  punished = col_integer(),
+  round_profit = col_integer()
+)
+
+# Fixing groups for Las Cruces. In Las Cruces groups were randomly reassigned after each round by mistake. So, this is fixing the groups across rounds as if the remained the same after the first period)
+
+Las_cruces_loco <- subset(DB, DB$union==3 & framing == 1)
+fix_groups1<- rep(Las_cruces_loco$group[1:10], length(Las_cruces_loco$group)/10)
+
+Las_cruces_mer <- subset(DB, DB$union==3 & framing == 2)
+fix_groups2<- rep(Las_cruces_mer$group[1:10], length(Las_cruces_mer$group)/10)
+
+DB$group[DB$union== 3 & DB$framing ==1] <- fix_groups1
+DB$group[DB$union== 3 & DB$framing ==2] <- fix_groups2
+
+# Arranging data. Generating group id, changing no observations values to NAs.
+  
+DB <- DB %>% 
+  mutate(group_id = interaction(union, group, framing, sep=''),
+         id = interaction(id, group_id, sep=''),
+         round = ifelse(round <= 13, round - 3, round - 6),
+         overext_observed = ifelse(observer == 1, overext_observed, NA),
+         report= ifelse(observer == 1, report, NA),
+         punished = ifelse(observer == 0, punished, NA),
+         observer = ifelse(round < 11, NA, observer))%>% 
+         mutate(stage = ifelse(round < 11 , "Non-enforced", "Peer-enforced"), group_id = as.character(group_id)) 
+
+# selecting observations of interest
+
+DB_fishers <- DB %>%
+  filter(trial == 0,          
+        !(performance == 3),
+        !(framing == 3)) %>% 
+  select(id, union, performance, framing, group_id, stage, round, overextraction, observer, overext_observed, report, punished, round_profit)
+
+write.csv(DB_fishers, file= "C:/Users/Ignacia Rivera/Box Sync/Ignacia (m_i_rivera@ucsb.edu)/Papers/Paper_Turfs_Cooperation/Results/Clean/DB_fishers.csv")
+
+```
+
+
+```{r raw experiment data, echo = FALSE, message=FALSE, warning=FALSE, include=FALSE}
+
+DB <- read_csv("C:/Users/Ignacia Rivera/Box Sync/Ignacia (m_i_rivera@ucsb.edu)/Papers/Paper_Turfs_Cooperation/Results/Clean/DB.csv")
+cols(
+  union = col_integer(),
+  performance = col_integer(),
+  framing = col_integer(),
+  id = col_integer(),
+  group = col_integer(),
+  round = col_integer(),
+  trial = col_integer(),
+  overextraction = col_integer(),
+  observer = col_integer(),
+  overext_observed = col_integer(),
+  report = col_integer(),
+  punished = col_integer(),
+  round_profit = col_integer()
+)
+
+# Fixing groups for Las Cruces. In Las Cruces groups were randomly reassigned after each round by mistake. So, this is fixing the groups across rounds as if the remained the same after the first period)
+
+Las_cruces_loco <- subset(DB, DB$union==3 & framing == 1)
+fix_groups1<- rep(Las_cruces_loco$group[1:10], length(Las_cruces_loco$group)/10)
+
+Las_cruces_mer <- subset(DB, DB$union==3 & framing == 2)
+fix_groups2<- rep(Las_cruces_mer$group[1:10], length(Las_cruces_mer$group)/10)
+
+DB$group[DB$union== 3 & DB$framing ==1] <- fix_groups1
+DB$group[DB$union== 3 & DB$framing ==2] <- fix_groups2
+
+# Arranging data. Generating group id, changing no observations values to NAs.
+  
+DB <- DB %>% 
+  mutate(group_id = interaction(union, group, framing, sep=''),
+         id = interaction(id, group_id, sep=''),
+         round = ifelse(round <= 13, round - 3, round - 6),
+         overext_observed = ifelse(observer == 1, overext_observed, NA),
+         report= ifelse(observer == 1, report, NA),
+         punished = ifelse(observer == 0, punished, NA),
+         observer = ifelse(round < 11, NA, observer))%>% 
+         mutate(stage = ifelse(round < 11 , "Non-enforced", "Peer-enforced"), group_id = as.character(group_id)) %>%
+         select(-(group))
+
+# selecting observations of interest
+
+DB <- DB %>%
+  filter(trial == 0,          
+        !(performance == 3),
+        !(framing == 3)) 
+
+# Data preview
+
+knitr::kable(head(DB))
+```
+
+## Performance index 
+
+```{r performance index, echo = FALSE, warning= FALSE, message= FALSE}
+
+turf_index <- read.csv("C:/Users/Ignacia Rivera/Box Sync/Ignacia (m_i_rivera@ucsb.edu)/Papers/Paper_Turfs_Cooperation/turf_index/turf_index_data.csv", na.strings = 'M', col.names = c('union', "n_species", "n_added_value", "pride", "compliance", "tac", "star_union", "performance", "proj_performance")) 
+
+index <- turf_index%>% 
+  #filter(union %in% c("maitencillo", "cruces1", "quintero", "antonio", "quisco")) %>% 
+  select(- union) %>% 
+  mutate_all(as.numeric) %>% 
+  mutate_all(normalize)
+turf_index[is.na(turf_index)] <- 0
+
+turf_index <- turf_index %>% 
+  mutate(index = n_species+n_added_value+pride+compliance+tac+star_union+performance+proj_performance)
+
+midrange <- - 0.449717
+
+index <- index %>% 
+  mutate(index = n_species+n_added_value+pride+compliance+tac+star_union+performance+proj_performance) %>% 
+  mutate(performance_cat = ifelse(index > midrange, 'High', 'Low'))
+
+associations <- turf_index$union
+
+index <- data.frame(associations, index)
+
+```
+
+
+## Data on benthic dependence in each location
+
+We used catch data from the Chilean National Service of Fisheries and Aquaculture (SERNAPESCA) over the last 10 years before the experiment was conducted to estimate the degree of dependency of each association on benthich resources. We estimated the percent of the catch that was composed by benthic (excluding algae) and pelagic resources for each location in each year and then, estimated the average percent across years. 
+
+```{r resource dependence, echo=FALSE, warning=FALSE, message=FALSE}
+
+# Importing data and selecting observations of interest and classificating species in type. What is CHANQUE!!
+
+catch <- read_csv("C:/Users/Ignacia Rivera/Box Sync/Ignacia (m_i_rivera@ucsb.edu)/Papers/Paper_TURFs_Cooperation/Info_Comunidades/catch_caleta.csv") %>% 
+  filter(caleta %in% c("MAITENCILLO V Reg", "EL QUISCO", "LAS CRUCES", "EL EMBARCADERO", "BOCA DE RAPEL"), year < 2016) %>%  
+  mutate(resource = ifelse(species %in% c("PICOROCO", "PIURE", "CARACOL TEGULA","LAPA", "JAIBA MORA", "JAIBA REMADORA", "JAIBA","ALMEJA","CARACOL LOCATE", "LAPA REINA", "JAIBA MARMOLA", "JAIBA REINA", "LOCO", "CHORO", "ERIZO", "JAIBA PELUDA O PACHONA","LAPA ROSADA", "LAPA NEGRA", "CAMARON NAILON", "CAMARON DE ROCA", "LANGOSTINO AMARILLO", "LANGOSTINO COLORADO", "JAIBA LIMON", "HUEPO O NAVAJA DE MAR", "PULPO", "CAMARON NAVAJA", "GAMBA"), 'benthic', ifelse(species %in% c("VIEJA O MULATA", "TOMOYO", "SIERRA", "TOLLO", "TIBURON O MARRAJO", "LISA", "LENGUADO", "PEJEGALLO","MERLUZA COMUN", "CONGRIO NEGRO", "CORVINA", "PESCADO NO CLASIFICADO", "PEJESAPO", "SARDINA ESPAnOLA", "SARDINA COMUN", "SALMON DEL ATLANTICO", "REINETA", "RAYA VOLANTIN", "ROBALO", "COJINOBA DEL NORTE", "ROLLIZO", "CONGRIO COLORADO", "DORADO DE ALTURA", "CONGRIO DORADO", "BILAGAY", "BLANQUILLO", "CABALLA", "BRECA O BILAGAY", "BACALAO DE PROFUNDIDAD", "AZULEJO", "CABRILLA", "JERGUILLA", "JUREL", "JIBIA O CALAMAR ROJO", "ALBACORA O PEZ ESPADA", "ANCHOVETA", "DORADO", "PALOMETA", "PEJEPERRO", "LENGUADO DE OJOS CHICOS", "PEJEZORRO", "RAYA NEGRA","COJINOBA DEL NORTE / PIAFRI", "BESUGO", "APAnADO", "DESECHO DE PESCADO", "MERLUZA DE COLA", "PAMPANITO", "VIDRIOLA, PALOMETA, DORADO O TOREMO", "COJINOBA DEL SUR", "ANGUILA", "TIBURON O MARRAJO DENTUDO", "RONCACHO", "CABINZA", "MACHUELO O TRITRE"), "pelagic", ifelse(species %in% c("LUGA-ROJA", "LUGA CUCHARA O CORTA",  "COCHAYUYO", "CHASCA",  "CHASCON O HUIRO NEGRO", "HUIRO", "HUIRO PALO", "LUCHE", "LIQUEN GOMOSO", "LUGA NEGRA O CRESPA", "LECHUGUILLA", "PELILLO", "CHANQUE"), "algae", NA))))
+
+# Calculating percents
+
+catch_total<- catch %>% 
+  group_by(year, caleta) %>% 
+  summarise(annual_catch = sum(annual_catch)) 
+
+catch_benthic <- catch%>% 
+  filter(resource == "benthic") %>% 
+  group_by(caleta, year) %>% 
+  summarise(annual_catch_benthic = sum(annual_catch))
+ 
+dependency_benthic <- inner_join(catch_total, catch_benthic, by = c('year', 'caleta')) %>% 
+  mutate(perc_benthic = (annual_catch_benthic*100)/annual_catch) %>% 
+  group_by(caleta) %>% 
+  summarise(benthic_perc = sum(perc_benthic)/9) %>% 
+  mutate(union = ifelse(caleta =='BOCA DE RAPEL', 4, ifelse(caleta=='EL EMBARCADERO', 7, ifelse(caleta=='EL QUISCO', 1, ifelse(caleta =='MAITENCILLO V Reg', 2, ifelse(caleta == 'LAS CRUCES', 3, NA)))))) 
+
+# Replicating El Quisco dependency estimate for El Quisco II 
+el_quisco2 <- c('EL QUISCO II', dependency_benthic$benthic_perc[dependency_benthic$union== 1], 6)
+
+dependency_benthic <- dependency_benthic %>% 
+  rbind(el_quisco2) 
+dependency_benthic$union <- sapply(dependency_benthic$union, as.numeric)
+
+knitr::kable(dependency_benthic)
+
+DB <- DB %>% 
+  inner_join(dependency_benthic, by= 'union') %>% 
+  select(union, performance, framing, id, round, trial, overextraction, observer, overext_observed, report, punished, round_profit, group_id, benthic_perc, stage)
+  
+```
+
+## Analysis to test differences in group compliance
+
+### Mean group Compliance (number of non-overharvested units from a total of 250)
+
+```{r Changes in group overharvest, echo = FALSE, message=FALSE, warning=FALSE}
+
+#Summarizig  per group
+
+aux1 <- data.frame(unique(DB$group_id), c(seq(1, length(unique(DB$group_id)))))
+colnames(aux1) <- c('group_id', 'new_group_id')
+
+DB_group <- DB %>% 
+  group_by(group_id, round)%>%
+  summarise(group_overextr = sum(overextraction)) %>% 
+  inner_join(aux1, by="group_id") %>% 
+  extract(group_id, into=c("union", "group", "framing"), '(.)(.)(.)')%>% 
+  mutate(union= as.numeric(union)) %>% 
+  mutate(performance = ifelse(union == 1 | union ==2| union ==6, 1, 2), stage = ifelse(round < 11 , "Non-enforced", "Peer-enforced")) %>% 
+  select(union, performance, framing, group_id = new_group_id, round, group_overextr, stage) %>% 
+  inner_join(dependency_benthic, by= 'union') %>% 
+  mutate(benthic_perc= as.numeric(benthic_perc)) %>% 
+  mutate(dependency_cat= ifelse(benthic_perc > 30, 1, 0)) %>% 
+  mutate(compliance = 250 - group_overextr) %>% 
+  mutate(compliance_perc = (compliance * 100)/250)
+  
+  
+# Mean group compliance per stage, frame and association
+
+mean_group_compliance <- DB_group %>%
+  group_by(performance, framing, stage) %>% 
+  summarise(mean_group_compliance = mean(250 - group_overextr), sd = sd(250 - group_overextr)) %>% 
+  mutate(stage = ifelse(stage=='Non-enforced',1,2))
+
+knitr::kable(mean_group_compliance)
+
+high_loco_non_enforced <- mean_group_compliance$mean_group_compliance[mean_group_compliance$framing==1 & mean_group_compliance$stage ==1 & mean_group_compliance$performance ==1] 
+
+high_hake_non_enforced <- mean_group_compliance$mean_group_compliance[mean_group_compliance$framing==2 & mean_group_compliance$stage ==1 & mean_group_compliance$performance ==1] 
+
+high_loco_peer_enforced <- mean_group_compliance$mean_group_compliance[mean_group_compliance$framing==1 & mean_group_compliance$stage ==2 & mean_group_compliance$performance ==1] 
+
+high_hake_peer_enforced <- mean_group_compliance$mean_group_compliance[mean_group_compliance$framing==2 & mean_group_compliance$stage ==2 & mean_group_compliance$performance ==1] 
+  
+low_loco_non_enforced <- mean_group_compliance$mean_group_compliance[mean_group_compliance$framing==1 & mean_group_compliance$stage ==1 & mean_group_compliance$performance ==2] 
+
+low_hake_non_enforced <- mean_group_compliance$mean_group_compliance[mean_group_compliance$framing==2 & mean_group_compliance$stage ==1 & mean_group_compliance$performance ==2] 
+
+low_loco_peer_enforced <- mean_group_compliance$mean_group_compliance[mean_group_compliance$framing==1 & mean_group_compliance$stage ==2 & mean_group_compliance$performance ==2] 
+
+low_hake_peer_enforced <- mean_group_compliance$mean_group_compliance[mean_group_compliance$framing==2 & mean_group_compliance$stage ==2 & mean_group_compliance$performance ==2] 
+
+# Percent difference for each stage-frame combination 
+
+diff_high_non_enforced <- round((high_loco_non_enforced - high_hake_non_enforced)/((high_loco_non_enforced + high_hake_non_enforced)/2)*100, 2)
+
+diff_high_peer_enforced <- round((high_loco_peer_enforced - high_hake_peer_enforced)/((high_loco_peer_enforced + high_hake_peer_enforced)/2)*100, 2)
+
+diff_high_loco <- round((high_loco_non_enforced - high_loco_peer_enforced)/((high_loco_non_enforced + high_loco_peer_enforced)/2)*100, 2)
+
+diff_high_hake <- round((high_hake_non_enforced - high_hake_peer_enforced)/((high_hake_non_enforced + high_hake_peer_enforced)/2)*100, 2)
+
+diff_low_non_enforced <- round((low_loco_non_enforced - low_hake_non_enforced)/((low_loco_non_enforced + low_hake_non_enforced)/2)*100, 2)
+
+diff_low_peer_enforced <- round((low_loco_peer_enforced - low_hake_peer_enforced)/((low_loco_peer_enforced + low_hake_peer_enforced)/2)*100, 2)
+
+diff_low_loco <- round((low_loco_non_enforced - low_loco_peer_enforced)/((low_loco_non_enforced + low_loco_peer_enforced)/2)*100, 2)
+
+diff_low_hake <- round((low_hake_non_enforced - low_hake_peer_enforced)/((low_hake_non_enforced + low_hake_peer_enforced)/2)*100, 2)
+
+```
+
+### Percent differences between frame-stage combinations. 
+
+- High-performance communities in non-enforced stage =  `r diff_high_non_enforced`
+- High-performance communities in peer-enforced stage =  `r diff_high_peer_enforced`
+- High-performance communities in loco frame =  `r diff_high_loco`
+- High-performance communities in hake frame =  `r diff_high_hake`
+- Low-performance communities in non-enforced stage =  `r diff_low_non_enforced`
+- Low-performance communities in peer-enforced stage =  `r diff_low_peer_enforced`
+- Low-performance communities in loco frame =  `r diff_low_loco`
+- Low-performance communities in hake frame =  `r diff_low_hake`
+
+### Non-parametric test (Mann-Whitney U test test) 
+
+To have independent observations we generated one observation per group for each frame-stage combination. Each observation was built as the mean group compliance (i.e. 250 - group overharvest) over ten rounds. Because we are testing multiple hypotheses we corrected our significance level applying the Bonferroni correction (see equation below). Where $m$ is the number of comparisons $\alpha_n$ is the new level of significance and $\alpha = 0.05$
+$$ \alpha_n = \frac{\alpha} {m}$$
+
+We then ran a U-Mann-Whitney test to test for significant differences in comparisons of interest
+
+
+```{r organizing data for non-parametric test, echo= FALSE, comment=NA}
+
+High <- DB_group %>% 
+  filter(performance== 1) %>%  
+  mutate(stage_2 = ifelse(stage=='Non-enforced',1,2), 
+         stage_4 = ifelse(round %in% c(seq(1,5)),1, ifelse(round %in% c(seq(6,10)), 2, ifelse(round %in% c(seq (11,15)),3, 4))), 
+         stage_6 = ifelse(round %in% c(seq(1,4)),1, ifelse(round %in% c(seq(5,7)), 2, ifelse(round %in% c(seq (8,10)),3, ifelse(round %in% c(seq (11,14)), 4, ifelse(round %in% c(seq(15, 17)), 5, 6))))), 
+         stage_10 = ifelse(round %in% c(1,2),1, ifelse(round %in% c(3,4), 2, ifelse(round %in% c(5,6),3, ifelse(round %in% c(7,8), 4, ifelse(round %in% c(9,10), 5, ifelse(round %in% c(11,12), 6, ifelse(round %in% c(13,14), 7, ifelse(round %in% c(15,16), 8, ifelse(round %in% c(17, 18), 9, 10))))))))))
+
+Low <- DB_group %>% 
+  filter(performance== 2) %>%  
+  mutate(stage_2 = ifelse(stage=='Non-enforced',1,2), 
+         stage_4 = ifelse(round %in% c(seq(1,5)),1, ifelse(round %in% c(seq(6,10)), 2, ifelse(round %in% c(seq (11,15)),3, 4))), 
+         stage_6 = ifelse(round %in% c(seq(1,4)),1, ifelse(round %in% c(seq(5,7)), 2, ifelse(round %in% c(seq (8,10)),3, ifelse(round %in% c(seq (11,14)), 4, ifelse(round %in% c(seq(15, 17)), 5, 6))))), 
+         stage_10 = ifelse(round %in% c(1,2),1, ifelse(round %in% c(3,4), 2, ifelse(round %in% c(5,6),3, ifelse(round %in% c(7,8), 4, ifelse(round %in% c(9,10), 5, ifelse(round %in% c(11,12), 6, ifelse(round %in% c(13,14), 7, ifelse(round %in% c(15,16), 8, ifelse(round %in% c(17, 18), 9, 10))))))))))
+
+```
+
+<!-- #### Non-parametric comparisons for High-performance associations in 2 different stages
+
+```{r non-parametric test for high in 2 stages, echo = FALSE, comment=NA, warning= FALSE, message= FALSE, results="hide"}
+
+with(High, by(High, stage_2, function(x) wilcox.test(group_overextr ~ framing, data=x)))
+
+```
+
+#### Non-parametric comparisons for High-performance associations in 4 different stages
+
+```{r non-parametric test for high in 4 stages, echo = FALSE, comment=NA, warning= FALSE, message= FALSE, results= "hide"}
+
+with(High, by(High, stage_4, function(x) wilcox.test(group_overextr ~ framing, data=x)))
+
+```
+
+#### Non-parametric comparisons for High-performance associations in 6 different stages
+
+```{r non-parametric test for high in 6 stages, echo = FALSE, comment=NA, warning= FALSE, message= FALSE, results= "hide"}
+
+with(High, by(High, stage_6, function(x) wilcox.test(group_overextr ~ framing, data=x)))
+
+```
+
+#### Non-parametric comparisons for High-performance associations in 10 different stages
+
+```{r non-parametric test for high in 10 stages, echo = FALSE, comment=NA, warning= FALSE, message= FALSE, results= "hide"}
+
+with(High, by(High, stage_10, function(x) wilcox.test(group_overextr ~ framing, data=x)))
+
+```
+#### Non-parametric comparisons for High-performance associations in each round
+
+```{r non-parametric test for high in each round, echo = FALSE, comment=NA, warning= FALSE, message= FALSE, results= "hide"}
+
+with(High, by(High, round, function(x) wilcox.test(group_overextr ~ framing, data=x)))
+
+```
+#### Non-parametric comparisons for Low-performance associations in 2 different stages
+
+```{r non-parametric test for low in 2 stages, echo = FALSE, comment=NA, warning= FALSE, message= FALSE, results= "hide"}
+with(High, by(Low, stage_2, function(x) wilcox.test(group_overextr ~ framing, data=x)))
+```
+
+#### Non-parametric comparisons for Low-performance associations in 4 different stages
+
+```{r non-parametric test for low in 4 stages, comment=NA, warning= FALSE, message= FALSE, results= "hide"}
+with(High, by(Low, stage_4, function(x) wilcox.test(group_overextr ~ framing, data=x)))
+```
+
+#### Non-parametric comparisons for Low-performance associations in 6 different stages
+
+```{r non-parametric test for low in 6 stages, echo = FALSE, comment=NA, warning= FALSE, message= FALSE, results= "hide"}
+with(High, by(Low, stage_6, function(x) wilcox.test(group_overextr ~ framing, data=x)))
+```
+
+#### Non-parametric comparisons for Low-performance associations in 10 different stages
+
+```{r non-parametric test for low in 10 stages, echo = FALSE, comment=NA, warning= FALSE, message= FALSE, results= "hide"}
+with(High, by(Low, stage_2, function(x) wilcox.test(group_overextr ~ framing, data=x)))
+```
+
+#### Non-parametric comparisons for Low-performance associations in each round
+
+```{r non-parametric test for low in each round, echo = FALSE, comment=NA, warning= FALSE, message= FALSE, results = "hide"}
+
+with(High, by(High, round, function(x) wilcox.test(group_overextr ~ framing, data=x)))
+
+```
+
+--> 
+
+#### Non-parametric comparisons of interest 
+
+
+##### High-performance associations
+```{r non-parametric test for comparisons of interestes in HP associations, echo = FALSE, comment=NA, warning= FALSE, message= FALSE}
+
+# High-performance 
+
+## Loco non-enforced vs. Hake non-enforced
+wilcox.test(250-group_overextr ~ framing, data= filter(High, stage == 'Non-enforced'))
+
+## Loco enforced vs. Hake enforced
+wilcox.test(250- group_overextr ~ framing, data= filter(High, stage == 'Peer-enforced'))
+
+## Loco non-enforced vs. Loco peer-enforced
+wilcox.test(250- group_overextr ~ stage, data= filter(High, framing == 1))
+
+## Hake non-enforced vs. hake peer-enforced
+wilcox.test(250- group_overextr ~ stage, data= filter(High, framing == 2))
+
+```
+
+##### Low-performance associations
+```{r r non-parametric test for comparisons of interestes in LP associations, echo = FALSE, comment=NA, warning= FALSE, message= FALSE}
+# Low-performance 
+
+## Loco non-enforced vs. Hake non-enforced
+wilcox.test(250 - group_overextr ~ framing, data= filter(Low, stage == 'Non-enforced'))
+
+## Loco enforced vs. Hake enforced
+wilcox.test(250 - group_overextr ~ framing, data= filter(Low, stage == 'Peer-enforced'))
+
+## Loco non-enforced vs. Loco peer-enforced
+wilcox.test(group_overextr ~ stage, data= filter(Low, framing == 1))
+
+## Hake non-enforced vs. hake peer-enforced
+wilcox.test(250 - group_overextr ~ stage, data= filter(Low, framing == 2))
+
+```
+
+
+<!--
+### Using Bonferroni correction in the CI built by using bootstraped clustered SE
+
+We calculated bootstraped clustered SE using group and round as the cluster variables. We then plotted 99% CI to infer statistical differences of the mean between framings. We use the 99% CI instead of the 95% CI to correct for multiple comparisons applying the Bonferroni correction. This correction states that the confidence level should be adjusted following:
+
+$$CI = 1 - \frac{\alpha}{m} $$
+In our case $m = 20$ since we are performing a comparison in each round. Hence, our confidence level should be 99.75% to establish significant differences. To estimate the 99% CI we multiplied the SE by 2.58. Should be similar to running a linear regression and adjust CI (should we cluster SE too if we do this)?
+
+I should be using SE to estimate CI, check why I'm using SD instead?!!!
+
+```{r clustered SE and CI for the figure, warning=FALSE, echo=FALSE, message= FALSE}
+
+# Bootstraped clustered SE using group and round as the cluster variable
+
+### In each round for each group I bootstraped the mean and then calculate the SE of the mean by calculating the standard deviation of the means generated in each sampling. 
+
+# This function takes a vector with the obervations and a cluster variable to perform a bootstraping of sample size 5 ( 5 obervations per group per round) with replacement in each cluster.
+
+boot <- function(obsv, cluster){
+  
+  #generates a resample per cluster
+  booty <- tapply(obsv, cluster, FUN=function(x) sample(x, 5, replace=TRUE))
+  #calculates the mean of the aggregated new sample
+  boot.mean <- mean(c(booty[[1]], booty[[2]], booty[[3]], booty[[4]], booty[[5]], booty[[6]]))
+  
+  return(boot.mean)
+  
+}
+
+P = c(1,2) # performance ind
+Fr = c(1,2) # framing indicator
+R = c(seq(1:20)) # round indicator
+
+clustered.SE <- array(dim= c(20, 2, 2)) # stores results; rows are rounds, columns are frame and matrix is performance
+
+
+for (p in 1:length(P)){
+   for(f in 1:length(Fr)){
+     for(r in 1:length(R)){
+    
+       # filters dataset by round, frame and performance
+      data <- DB %>% 
+      filter(performance == P[p], framing == Fr[f], round == R[r]) %>% 
+      select(overextraction, group_id)
+    
+      # stores values of boot.means
+      samples <- replicate(1000, boot(data$overextraction, data$group_id))
+      # calculate SE of the mean for that round. WHy SD??!
+      SE <- sd(samples)
+    
+     clustered.SE[r, f, p] = SE
+   
+
+    }
+  }
+}
+
+# Formating clustered SE for ploting
+
+clustered.SE.high.loco <- data.frame(performance = 1, framing = 1, round = c(seq(1:20))) %>% 
+                                       cbind(SE= clustered.SE[,1,1])
+clustered.SE.high.hake <- data.frame(performance = 1, framing = 2, round = c(seq(1:20))) %>% 
+                                       cbind(SE= clustered.SE[,2,1])
+clustered.SE.low.loco <- data.frame(performance = 2, framing = 1, round = c(seq(1:20))) %>% 
+                                       cbind(SE= clustered.SE[,1,2])
+clustered.SE.low.hake <- data.frame(performance = 2, framing = 2, round = c(seq(1:20))) %>% 
+                                       cbind(SE= clustered.SE[,2,2])
+clustered.SE.plot <- rbind(clustered.SE.high.loco, clustered.SE.high.hake, clustered.SE.low.loco, clustered.SE.low.hake)
+
+# Dataframe to plot overextraction means with clustered SE ***The formula to estimate CI from SE assumes normality
+
+DB_plot <- DB %>% 
+  group_by(performance, framing, round) %>% 
+  summarise(mean.overextraction = mean(overextraction)) %>% 
+  inner_join(clustered.SE.plot) %>% 
+  mutate(stage = ifelse(round < 11, 'Non-enforced', 'Peer-enforced'), SE.upper = mean.overextraction + SE, SE.lower = mean.overextraction - SE, CI.upper = mean.overextraction + SE*2.58, CI.lower = mean.overextraction - SE*2.58, frame= ifelse(framing == 1, 'Loco', 'Hake'))
+
+```
+
+```{r Figure showing compliance per round, warning=FALSE, echo=FALSE, message= FALSE, fig.cap= 'Average quota compliance in the loco (blue line) and the hake games (red line) for high-performance (left panel) and low-performance associations (right panel). A 100% mean quota compliance means fishers harvested on average zero units above their individual quota, and a 0% mean quota compliance means fishers harvested, on average, 50 units above their individual quota. Shaded region represents values within the 99%  confidence intervals, calculated using bootstrapped standard errors clustered by group. We use the 99% confidence interval based on the Bonferroni method to correct for multiple comparisons.'}
+
+# Function to extract the legend
+g_legend<-function(a.gplot) {
+  tmp <- ggplot_gtable(ggplot_build(a.gplot))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)}
+
+
+# Plot of the mean over rounds with CI for high performance
+
+p5 = ggplot(filter(DB_plot, performance ==1), aes(x=round, y=100 - ((mean.overextraction*100)/50), group=frame, colour= frame, fill=frame)) + 
+    #geom_ribbon(aes(ymin=100 - ((CI.lower*100)/50), ymax=100 - ((CI.upper*100)/50)), alpha = 0.25, color = NA) +
+    geom_line(size =0.8) + 
+    geom_point(size =1.3)+
+    scale_color_manual(values = c("red1", "royalblue3"), labels = c("Hake (pseudo OA)", "Loco (CEAR)"))+
+    scale_fill_manual(values = c("red1", "royalblue3"), labels = c("Hake (pseudo OA)", "Loco (CEAR)"))+
+    scale_x_continuous(expand = c(0,0), breaks=c(seq(0,20,5)))+
+    scale_y_continuous(limits = c(0,100), breaks = c(seq(0,100,20)), expand = c(0,0))+
+    labs(x=expression(bold("Round")), y= expression(bold("Quota compliance (%)")))+
+    ggtitle(expression(bold('High-performance')))+
+    theme_bw(base_size=10)+
+    theme(legend.position="bottom", legend.title=element_blank(), legend.text = element_text(size=9), panel.grid = element_blank(), plot.title = element_text(size = 11, hjust = 0.5), strip.text = element_text(size=9))+
+    facet_wrap(~stage, ncol=2, scale="free_x")+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        panel.border = element_rect(colour = "dark grey"))
+
+mylegend<-g_legend(p5)
+# Plot of the mean over rounds with CI for low performance
+
+p6 = ggplot(filter(DB_plot, performance ==2), aes(x=round, y= 100 - ((mean.overextraction*100)/50), group=frame, colour= frame, fill=frame)) + 
+    #geom_ribbon(aes(ymin= 100 - ((CI.lower*100)/50), ymax= 100 - ((CI.upper*100)/50)), alpha = 0.25, color = NA) +
+    geom_line(size =0.8) + 
+    geom_point(size =1.3)+
+    scale_color_manual(values = c("red1", "royalblue3"), labels = c("Hake (pseudo OA)", "Loco (CEAR)"))+
+    scale_fill_manual(values = c("red1", "royalblue3"), labels = c("Hake (pseudo OA)", "Loco (CEAR)"))+
+    scale_x_continuous(expand = c(0,0), breaks=c(seq(0,20,5)))+
+    scale_y_continuous(limits = c(0,100), breaks = c(seq(0,100,20)), expand = c(0,0))+
+    labs(x=expression(bold("Round")), y= expression(bold("Quota compliance (%)")), size=10)+
+    ggtitle(expression(bold('Low-performance')))+
+    theme_bw(base_size=10)+
+    theme(legend.position="bottom", legend.title=element_blank(), legend.text = element_text(size=9), axis.title.y=element_blank(), panel.grid = element_blank(), plot.title = element_text(size = 11, hjust = 0.5), strip.text = element_text(size=9))+
+    facet_wrap(~stage, ncol=2, scale="free_x") + 
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        panel.border = element_rect(colour = "dark grey"))
+
+# Figure of the evolution of overextraction for both types of associations
+
+Figure2 <- grid.arrange(arrangeGrob(p5 + theme(legend.position="none"),
+                         p6 + theme(legend.position="none"),
+                         nrow=1),
+             mylegend, nrow=2,heights=c(10, 1))
+
+ggsave("Figure_overharvest_CI.png", plot=Figure2, path= "C:/Users/Ignacia Rivera/Box Sync/Ignacia (m_i_rivera@ucsb.edu)/Papers/Paper_Turfs_Cooperation/Results/Clean", scale= 1, width= 14, height = 8, units="cm", dpi=300)
+
+```
+
+
+### Random-effects models with clustered standard errors to look at the effect of frame and enforcement over group extraction. 
+
+```{r random effects model for group overharvest, echo=FALSE, warning= FALSE, message=FALSE}
+
+# Group dataframe as panel 
+
+DB_high_group <- filter(DB_group, DB_group$performance==1) %>% 
+  mutate(loco = ifelse(framing == 1, 1, 0), enforcement = ifelse(round < 11, 0, 1))
+
+DB_low_group <- filter(DB_group, DB_group$performance==2) %>% 
+  mutate(loco = ifelse(framing == 1, 1, 0), enforcement = ifelse(round < 11, 0, 1))
+
+panel_DB_high_group <- pdata.frame(DB_high_group, index=c("group_id"), drop.index=TRUE, row.names=TRUE) 
+panel_DB_low_group <- pdata.frame(DB_low_group, index=c("group_id"), drop.index=TRUE, row.names=TRUE) 
+
+
+# Random effect GLS for group overharvest of high performance assocaitions
+
+gls_rm_high_group_int <- plm(group_overextr ~ as.factor(loco)*as.factor(enforcement) + round, data = panel_DB_high_group, model = "random")
+
+# With cluster standard errors
+gls_rm_high_group_clust_int <- coeftest(gls_rm_high_group_int, vcov=function(x)
+vcovHC(x, cluster="group", type="HC1"))
+
+
+gls_rm_dependency_high_group_int <- plm(group_overextr~ as.factor(loco)*as.factor(enforcement) + as.numeric(benthic_perc) + round, data = panel_DB_high_group, model = "random")
+gls_rm_dependency_high_group_clust_int <- coeftest(gls_rm_dependency_high_group_int, vcov=function(x)
+vcovHC(x, cluster="group", type="HC1"))
+
+
+gls_rm_union_high_group_int <- plm(group_overextr ~ as.factor(loco)*as.factor(enforcement) + as.factor(union) + round, data = panel_DB_high_group, model = "random")
+gls_rm_union_high_group_clust_int <- coeftest(gls_rm_union_high_group_int, vcov=function(x)
+vcovHC(x, cluster="group", type="HC1"))
+
+# Random effect GLS for for group overharvest of low performance assocaitions
+
+gls_rm_low_group_int <- plm(group_overextr ~ as.factor(loco)*as.factor(enforcement) + round, data = panel_DB_low_group, model = "random")
+gls_rm_low_group_clust_int <- coeftest(gls_rm_low_group_int, vcov=function(x)
+vcovHC(x, cluster="group", type="HC1"))
+
+
+gls_rm_dependency_low_group_int <- plm(group_overextr~ as.factor(loco)*as.factor(enforcement) + as.numeric(benthic_perc) + round, data = panel_DB_low_group, model = "random")
+gls_rm_dependency_low_group_clust_int <- coeftest(gls_rm_dependency_low_group_int, vcov=function(x)
+vcovHC(x, cluster="group", type="HC1"))
+
+
+gls_rm_union_low_group_int <- plm(group_overextr ~ as.factor(loco)*as.factor(enforcement) + as.factor(union) + round, data = panel_DB_low_group, model = "random")
+gls_rm_union_low_group_clust_int <- coeftest(gls_rm_union_low_group_int, vcov=function(x)
+vcovHC(x, cluster="group", type="HC1"))
+
+```
+
+```{r results random effects models for group overharvest, echo= FALSE, results= 'asis', warning=FALSE, message=FALSE}
+
+stargazer(gls_rm_high_group_clust_int, gls_rm_dependency_high_group_clust_int, gls_rm_union_high_group_clust_int, header= FALSE, dep.var.labels = "Number of units overhervested by the group", title = "Random effect model to test the effect of frame, peer-enforcement and its interaction on group overharvest of high-performance associations. Standard errors are clustered at the group level. Model (2) controls for dependency on benthic resources and model (3) controls for each associations.", covariate.labels = c('Loco frame', 'Peer-enforced', 'Benthic dependency', 'Association a', 'Association b', 'Loco frame x Peer-enforcement', 'Round', 'Constant'))
+
+stargazer(gls_rm_low_group_clust_int, gls_rm_dependency_low_group_clust_int, gls_rm_union_low_group_clust_int, header= FALSE, dep.var.labels = "Number of units overhervested by the group", title = "Random effect model to test the effect of frame, peer-enforcement and its interaction on group overharvest of low-performance associations. Standard errors are clustered at the group level. Model (2) controls for dependency on benthic resources and model (3) controls for each associations.", covariate.labels = c('Loco frame', 'Peer-enforced', 'Benthic dependency', 'Association a', 'Association b', 'Loco frame x Peer-enforcement', 'Round', 'Constant'))
+
+
+```
+
+### Random-effects models with clustered standard errors to look at the effect of frame and enforcement over individual extraction.
+```{r random effects model for individual overharvest, echo=FALSE, warning= FALSE, message=FALSE}
+
+# Individual dataframe as panel 
+
+DB_high_ind <- filter(DB, DB$performance==1) %>% 
+  mutate(loco = ifelse(framing == 1, 1, 0), enforcement = ifelse(round <11, 0, 1))
+
+DB_low_ind<- filter(DB, DB$performance==2) %>% 
+  mutate(loco = ifelse(framing == 1, 1, 0), enforcement = ifelse(round <11, 0, 1))
+
+panel_DB_high_ind <- pdata.frame(DB_high_ind, index=c("id"), drop.index=TRUE, row.names=TRUE) 
+panel_DB_low_ind <- pdata.frame(DB_low_ind, index=c("id"), drop.index=TRUE, row.names=TRUE) 
+
+# Random effect GLS for individual overharvest of high performance associations
+
+gls_rm_high_ind_int <- plm(overextraction ~ as.factor(loco)*as.factor(enforcement) + round, data = panel_DB_high_ind, model = "random")
+gls_rm_high_ind_clust_int <- coeftest(gls_rm_high_ind_int, vcov=function(x)
+vcovHC(x, cluster="group", type="HC1"))
+
+
+gls_rm_dependency_high_ind_int <- plm(overextraction~ as.factor(loco)*as.factor(enforcement) + as.numeric(benthic_perc) + round, data = panel_DB_high_ind, model = "random")
+gls_rm_dependency_high_ind_clust_int <- coeftest(gls_rm_dependency_high_ind_int, vcov=function(x)
+vcovHC(x, cluster="group", type="HC1"))
+
+
+gls_rm_union_high_ind_int <- plm(overextraction ~ as.factor(loco)*as.factor(enforcement) + as.factor(union) + round, data = panel_DB_high_ind, model = "random")
+gls_rm_union_high_ind_clust_int <- coeftest(gls_rm_union_high_ind_int, vcov=function(x)
+vcovHC(x, cluster="group", type="HC1"))
+
+# Random effect GLS for individual overharvest of low performance assocaitions
+
+gls_rm_low_ind_int <- plm(overextraction ~ as.factor(loco)*as.factor(enforcement) + round, data = panel_DB_low_ind, model = "random")
+gls_rm_low_ind_clust_int <- coeftest(gls_rm_low_ind_int, vcov=function(x)
+vcovHC(x, cluster="group", type="HC1"))
+
+
+gls_rm_dependency_low_ind_int <- plm(overextraction~ as.factor(loco)*as.factor(enforcement) + as.numeric(benthic_perc) + round, data = panel_DB_low_ind, model = "random")
+gls_rm_dependency_low_ind_clust_int <- coeftest(gls_rm_dependency_low_ind_int, vcov=function(x)
+vcovHC(x, cluster="group", type="HC1"))
+
+
+gls_rm_union_low_ind_int <- plm(overextraction ~ as.factor(loco)*as.factor(enforcement) + as.factor(union) + round, data = panel_DB_low_ind, model = "random")
+gls_rm_union_low_ind_clust_int <- coeftest(gls_rm_union_low_ind_int, vcov=function(x)
+vcovHC(x, cluster="group", type="HC1"))
+
+
+```
+
+```{r results random effects models for individual overharvest, echo =FALSE, results = 'asis', warning = 'FALSE', message= FALSE}
+
+stargazer(gls_rm_high_ind_clust_int, gls_rm_dependency_high_ind_clust_int, gls_rm_union_high_ind_clust_int, header= FALSE, dep.var.labels = "Number of overhervested units", title = "Random effect regression to test the effect of frame, peer-enforcement and its interaction on individual overharvest in high-performance associations. Standard errors are clustered at the group level. Model (2) controls for dependency on benthic resources and model (3) controls for associations.", covariate.labels = c('Loco frame', 'Peer-enforcement', 'Benthic dependency', 'association c', 'association d', 'Loco frame x Peer-enforcement', 'Rounds', 'Constant'))
+
+
+stargazer(gls_rm_low_ind_clust_int, gls_rm_dependency_low_ind_clust_int, gls_rm_union_low_ind_clust_int, header= FALSE, dep.var.labels = "Number of overhervested units", title = "Random effect regression to test the effect of simulated access regimes (i.e. hake game or loco game), peer-enforcement and its interaction on individual overharvest in low-performance associations. Standard errors are clustered at the group level. Model (2) controls for dependency on benthic resources and model (3) controls for associations.", covariate.labels = c('Loco frame', 'Peer-enforcement', 'Benthic dependency', 'association c', 'association d', 'Loco frame x Peer-enforcement', 'Rounds', 'Constant'))
+```
+
+### CI obtained from a linear regression of group overharvest on round with fixed-effects per frame and enforcement satge with clustered standard errors.
+
+```{r fixed effect per treatment and type of association and clustered SE, echo = FALSE, message=FALSE, warning = FALSE}
+
+# Fixed effects model of rounds over group overharvest with fe for the combination of framing and performance with clustered standard errors. Ran in Stata.
+
+fe_model <- read_csv("C:/Users/Ignacia Rivera/Box Sync/Ignacia (m_i_rivera@ucsb.edu)/Papers/Paper_Turfs_Cooperation/Results/Clean/fe_reg_95_group_clus_se_stata.csv") %>% 
+  mutate(stage = ifelse(Round < 11, 'Non-enforced', 'Peer-enforced'))
+
+# Plot of the coefficient over rounds with CI for high performance
+
+p7 = ggplot(filter(fe_model, Performance ==1), aes(x=Round, y=Coef, group=as.factor(Framing), colour= as.factor(Framing), fill=as.factor(Framing))) + 
+    geom_ribbon(aes(ymin=ci_2.5, ymax=ci_97.5, alpha = 0.25, color =NA)) +
+    geom_line(size =0.7) + 
+    geom_point(size =1.3)+
+    scale_color_manual(values = c("red1", "royalblue3"), labels = c("Hake (pseudo OA)", "Loco (CEAR)"))+
+    scale_fill_manual(values = c("red1", "royalblue3"), labels = c("Hake (pseudo OA)", "Loco (CEAR)"))+
+    scale_x_continuous(expand = c(0,0), breaks=c(seq(0,20,5)))+
+    labs(x=expression(bold("Round")), y= expression(bold("Group overharvest")))+
+    ggtitle('High-performance TURF')+
+    theme_bw(base_size=11)+
+    theme(legend.position="bottom", legend.title=element_blank(), legend.text =    element_text(size=11), panel.grid = element_blank(), plot.title = element_text(hjust = 0.5))+
+    facet_wrap(~stage, ncol=2, scale="free_x")
+
+# Plot of the mean over rounds with CI for low performance
+p8 = ggplot(filter(fe_model, Performance ==2), aes(x=Round, y=Coef, group=as.factor(Framing), colour= as.factor(Framing), fill=as.factor(Framing))) + 
+    geom_ribbon(aes(ymin=ci_2.5, ymax=ci_97.5, alpha = 0.25, color =NA)) +
+    geom_line(size =0.7) + 
+    geom_point(size =1.3)+
+    scale_color_manual(values = c("red1", "royalblue3"), labels = c("Hake (pseudo OA)", "Loco (CEAR)"))+
+    scale_fill_manual(values = c("red1", "royalblue3"), labels = c("Hake (pseudo OA)", "Loco (CEAR)"))+
+    scale_x_continuous(expand = c(0,0), breaks=c(seq(0,20,5)))+
+    #scale_y_continuous(limits = c(0,100), breaks = c(seq(0,100,20)), expand = c(0,0))+
+    labs(x=expression(bold("Round")), y= expression(bold("Group overharvest")))+
+    ggtitle('Low-performance TURF')+
+    theme_bw(base_size=11)+
+    theme(legend.position="bottom", legend.title=element_blank(), legend.text =    element_text(size=11), panel.grid = element_blank(), plot.title = element_text(hjust = 0.5))+
+    facet_wrap(~stage, ncol=2, scale="free_x")
+
+
+# Figure of the evolution of overextraction for both types of associations
+
+Figure5 <- grid.arrange(arrangeGrob(p7 + theme(legend.position="none"),
+                         p8 + theme(legend.position="none"),
+                         nrow=1),
+             mylegend, nrow=2,heights=c(10, 1))
+
+
+```
+
+
+### Single regression with interaction per combination of frame-stage-perfromance with clustered SE. 
+
+```{r Single regression per combination of frame-stage-perfromance with clustered SE, echo= FALSE, warning=FALSE, message= FALSE, message=FALSE}
+
+# High-performance 
+
+reg_high_clust <- lm.cluster(data = filter(DB_group, performance ==1), formula = group_overextr ~ round*framing*stage, cluster = "group_id")
+
+reg_high <- lm(data = filter(DB_group, performance ==1), formula = group_overextr ~ round*framing*stage)
+
+x <- ggPredict(reg_high, se = TRUE)
+
+# Low-performance 
+
+reg_low_clust <- lm.cluster(data = filter(DB_group, performance ==2), formula = group_overextr ~ round*framing*stage, cluster = "group_id")
+
+reg_low <- lm(data = filter(DB_group, performance ==2), formula = group_overextr ~ round*framing*stage)
+reg_low <- lm(data = filter(DB_group, performance ==2), formula = group_overextr ~ round*framing*stage)
+
+y <- ggPredict(reg_low, se=TRUE)
+
+x
+y
+
+```
+
+```{r Single regressions per combination of frame-stage-perfromance with clustered SE results, echo =FALSE, results = 'asis', warning = 'FALSE', message= FALSE}
+
+stargazer(reg_high_clust, reg_low_clust, header= FALSE)
+
+```
+
+-->
+
+### Single regressions per combination of frame-stage-perfromance with clustered SE. 
+```{r single regressions per combination of frame-stage-association, echo =FALSE, warning = 'FALSE', message= FALSE}
+
+DB_group <- DB_group %>% 
+  mutate(round_adj = ifelse(round <11, round, round - 10))
+
+# High performance associations 
+high_noenf_loco<- felm(data = filter(DB_group, performance ==1 & framing ==1 & stage == 'Non-enforced'), formula = compliance_perc ~ round_adj |0 |0|group_id)
+
+high_noenf_hake<- felm(data = filter(DB_group, performance ==1 & framing ==2 & stage == 'Non-enforced'), formula = compliance_perc ~ round_adj |0 |0|group_id)
+
+high_enf_loco<- felm(data = filter(DB_group, performance ==1 & framing ==1 & stage == 'Peer-enforced'), formula = compliance_perc ~ round_adj |0 |0|group_id)
+
+high_enf_hake <- felm(data = filter(DB_group, performance ==1 & framing ==2 & stage == 'Peer-enforced'), formula = compliance_perc ~ round_adj |0 |0|group_id)
+
+# Low performance associations 
+low_noenf_loco<- felm(data = filter(DB_group, performance ==2 & framing ==1 & stage == 'Non-enforced'), formula = compliance_perc ~ round_adj |0 |0|group_id)
+
+low_noenf_hake<- felm(data = filter(DB_group, performance ==2 & framing ==2 & stage == 'Non-enforced'), formula = compliance_perc ~ round_adj |0 |0|group_id)
+
+low_enf_loco<- felm(data = filter(DB_group, performance ==2 & framing ==1 & stage == 'Peer-enforced'), formula = compliance_perc ~ round_adj |0 |0|group_id)
+
+low_enf_hake <- felm(data = filter(DB_group, performance ==2 & framing ==2 & stage == 'Peer-enforced'), formula = compliance_perc ~ round_adj |0 |0|group_id)
+
+DB_group <- DB_group %>% 
+  mutate(frame_stage = paste(framing, stage), compliance = ((250-group_overextr)*100)/250, performance_name = ifelse(performance == 1, 'High performance', 'Low  performance'))
+
+plot_reg <- ggplot(DB_group, aes(round, compliance, color=frame_stage, fill=frame_stage)) +
+  # 99.5 % confidence intervals because we are simoultaneosuly building the confidence intervals of 10 point estimates. Using the Bonferroni method (1 - alpha/n_hipotesis)
+  geom_smooth(method = 'lm_robust', level = 0.995, alpha = 0.2, size = 0.3) +
+  stat_summary(fun.y=mean, geom="point")+
+  #stat_summary(fun.y=mean, geom="line", size =1)+
+  scale_color_manual(values = c("royalblue3","royalblue3", "red1", "red1"), labels = c("Loco (CEAR)", "Loco(CEAR)", "Hake (pseudo OA)", "Hake (pseudo OA)", "Loco (CEAR)"))+
+  scale_fill_manual(values = c("royalblue3","royalblue3", "red1", "red1"))+
+  theme_bw() + 
+  xlab(expression(bold("Round"))) +
+  ylab(expression(bold("Quota compliance (%)")))+
+  scale_x_continuous(expand = c(0,0), breaks=c(seq(0,20,5)))+
+  scale_y_continuous(limits = c(0,100), breaks = c(seq(0,100,20)), expand = c(0,0))+
+  facet_wrap(~performance_name)+
+  theme(legend.position="bottom", legend.title=element_blank(), legend.text =    element_text(size=11), panel.grid = element_blank(), plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position="none",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(size= 11),
+        panel.border = element_rect(colour = "dark grey"))
+
+plot_reg
+
+ggsave("Figure_overharvest_model.png", plot=plot_reg, path= "C:/Users/Ignacia Rivera/Box Sync/Ignacia (m_i_rivera@ucsb.edu)/Papers/Paper_Turfs_Cooperation/Results/Clean", scale= 1, width= 14, height = 8, units="cm", dpi=300)
+
+```
+
+```{r single regressions, results = 'asis', echo= FALSE, warning= FALSE, message= FALSE}
+
+stargazer(high_noenf_loco, high_noenf_hake, high_enf_loco, high_enf_hake, header= FALSE, dep.var.labels = "Percent of group compliance", title = 'Linear regression models of round over percent of group compliance for high-performance associations. Sandard errors are clustered by group', covariate.labels = c('Round', 'Constant'), column.labels = c("Loco non-enforced", "Hake non-enforced", "Loco peer-enforced", "Hake peer-enforced" ), model.names = FALSE, model.numbers = FALSE, omit.stat = c("aic", "ll"), no.space=TRUE)
+
+stargazer(low_noenf_loco, low_noenf_hake, low_enf_loco, low_enf_hake, header= FALSE, dep.var.labels = "Percent of group compliance", title = 'Linear regression models of round over percent of group compliance for low-performance associations. Sandard errors are clustered by group', covariate.labels = c('Round', 'Constant'), column.labels = c("Loco non-enforced", "Hake non-enforced", "Loco peer-enforced", "Hake peer-enforced" ), model.names = FALSE, model.numbers = FALSE, omit.stat = c("aic", "ll"), no.space=TRUE)
+```
+
+### Binomial logistic regression to estimate the effect of simulated access regime on peer-enforcement 
+
+Because there were some subjects that were assigned as inspectors more than once, we have non-independent observations. To generate independent observation, we calculated the report rate of each subject (i.e. the proportion of reports over the total opportunities to report). If this rate was above 0.5 (i.e. the subject reported violations in more of a half of the opportunities), we coded that subject as a reporter, otherwise she/he was considered as a non-reporter. We then, ran a binomial logistic regression to estimate the effect of the simulated access regime over the probability of being a reporter. We controlled for the average number of units overharvested by the inspected individuals. 
+
+```{r Binomial logistic regression to estimate the effect if access regime on prob. of reporting, echo=FALSE, message= FALSE, warning=FALSE }
+
+# generating one reporters vs non reporters data frame 
+DB_report <- DB %>% 
+  filter(overext_observed > 0 & observer==1) %>% 
+  group_by(id) %>% 
+  summarise(sum=sum(report), count=n(), overext.observed.mean = mean(overext_observed)) %>% 
+  mutate(ind.report.rate = sum/count) %>% 
+  mutate(report.category = ifelse(ind.report.rate > 0.5, 1, 0)) %>% 
+  inner_join(DB, by = "id", all.x = FALSE) %>%
+  filter(round== 15) %>% 
+  mutate(framing = relevel(as.factor(framing), ref = 2))
+
+#binomial logistic regression high
+report_model_high <- glm(formula = report.category ~ framing + overext.observed.mean, family = binomial(link = "logit"), data = filter(DB_report, performance ==1))
+
+#geting probability of being an enforcer in loco high
+  report_high_odds <- exp(coef(report_model_high))
+  report_high_prob <- report_high_odds/ (1 + report_high_odds)
+  intercept_high <- coef(report_model_high)[1]
+  b_fram_high <- coef(report_model_high)[2]
+  b_harvest_high <- coef(report_model_high)[3]
+
+logit_loco_high   <- intercept_high + 1*b_fram_high +  b_harvest_high*0
+odds_loco_high <- exp(logit_loco_high) 
+prob_loco_high <- odds_loco_high / (1 + odds_loco_high)
+#the probability of being an enforcer under loco in high performance communities is 0.61 (the intercept of the model)
+#the probability of being an enforcer under hake in high performance communities is 0.21 (the intercept of the model)
+# 0.61 / 0.21 ~ 3 times more likely
+
+#binomial logistic regression low
+report_model_low <- glm(formula = report.category ~ framing + overext.observed.mean, family = binomial(link = "logit"), data = filter(DB_report, performance ==2))
+report_low_odds <- exp(coef(report_model_low))
+report_low_prob <- report_low_odds/ (1 + report_low_odds)
+
+#geting probability of being an enforcer in loco low
+  report_Low_odds <- exp(coef(report_model_low))
+  report_low_prob <- report_low_odds/ (1 + report_low_odds)
+  intercept_low <- coef(report_model_low)[1]
+  b_fram_low <- coef(report_model_low)[2]
+  b_harvest_low <- coef(report_model_low)[3]
+
+logit_loco_low   <- intercept_low + 1*b_fram_low +  b_harvest_low*0
+odds_loco_low <- exp(logit_loco_low) 
+prob_loco_low <- odds_loco_low / (1 + odds_loco_low)
+
+#the probability of being an enforcer under loco in low performance communities is 0.205985 (keeping harvested units as cero)
+#the probability of being an enforcer under hake in low performance communities is 0.09964925 (the intercept of the model keeping harvested units as cero)
+# 0.205985 / 0.09964925 ~ 3 times more likely
+
+```
+
+```{r results report regressions, echo= FALSE, results= 'asis', warning=FALSE, message=FALSE}
+
+stargazer(report_model_high, report_model_low, header= FALSE, dep.var.labels = "Log odds of behaving as enforcer", title = 'Binomial logistic regression to test the effect of frame over reporting behavior in both types of associations', covariate.labels = c('Loco frame', 'Average number of units overharvested by inspected subjects', 'Constant'), column.labels = c("High-performance", "Low-performance"), model.names = FALSE, model.numbers = FALSE, omit.stat = c("aic", "ll"))
+```
+
+```{r Figure for reporting probabilities, echo = FALSE, warning= FALSE, message= FALSE, fig.cap= ' Probability of being reported once caught overharvesting for high and low-performance unions under the two different framings: loco (in blue) and hake (in red).'}
+
+# Generating database for plot
+
+DB_report_plot <- DB %>% 
+  filter(observer ==1 & overext_observed > 0) %>% 
+  group_by(framing, performance) %>% 
+  summarise(
+    report_oportunities = n(),
+    report_counts= sum(report)) %>% 
+    mutate(probability = (report_counts)/report_oportunities )
+
+plot_report <-ggplot(DB_report_plot, aes(x=as.factor(performance), y=probability, fill=as.factor(framing))) + 
+  geom_bar(stat='identity', width=0.5, position=position_dodge(0.7))+
+  scale_fill_manual(values = c("royalblue3", "red1"), labels = c("Loco (CEAR)", "Hake (pseudo OA)"))+
+  xlab(expression(bold("Performance")))+
+  ylab(expression(bold("Probability of being reported")))+
+  scale_y_continuous(expand = c(0, 0), limits=c(0,0.8), breaks=seq(0,1, by=0.2))+
+  scale_x_discrete(labels=c("1" = "High", "2" = "Low"))+ 
+  theme_bw()+
+  theme(legend.position="bottom", legend.title=element_blank(), legend.text = element_text(size=9), panel.grid = element_blank(), plot.title = element_text(size = 11, hjust = 0.5), strip.text = element_text(size=9))
+
+Figure3 <- plot_report
+
+ggsave("Figure_reports_porb_per.png", plot=Figure3, path= "C:/Users/Ignacia Rivera/Box Sync/Ignacia (m_i_rivera@ucsb.edu)/Papers/Paper_Turfs_Cooperation/Results/Clean", scale= 1, width= 10, height = 12, units="cm", dpi=300)
+
+```
+
+### Binomial logistic regression to estimate the effect of simulated access regime an peer-enforcement on number of compliers and free-riders
+
+```{r Binomial logistic regression to estimate the effect if access regime and peer-enforcement in number of compliers and free-riders, echo=FALSE, message= FALSE, warning=FALSE }
+
+# generating one reporters vs non reporters data frame 
+DB_compliers_fr <- DB %>%
+  group_by(id, performance, framing, stage) %>% 
+  summarise(total_overextraction = sum(overextraction)) %>% 
+  mutate(complier = ifelse(total_overextraction ==0,1,0), quota_violator = ifelse(total_overextraction == 500, 1, 0)) %>% 
+  ungroup() %>% 
+  mutate(framing = relevel(as.factor(framing), ref = 2)) 
+
+# binomial logistic regression for compliers high
+compliers_high <- glm(formula = complier ~ framing + stage + framing*stage, family = binomial(link = "logit"), data = filter(DB_compliers_fr, performance ==1))
+
+# binomial logistic regression for compliers low
+compliers_low <- glm(formula = complier ~ framing + stage + framing*stage, family = binomial(link = "logit"), data = filter(DB_compliers_fr, performance ==2))
+
+# binomial logistic regression for free riders high
+freeriders_high <- glm(formula = quota_violator ~ framing + stage + framing*stage, family = binomial(link = "logit"), data = filter(DB_compliers_fr, performance ==1))
+
+# binomial logistic regression for free-riders low
+freeriders_low <- glm(formula = quota_violator ~ framing + stage + + framing*stage, family = binomial(link = "logit"), data = filter(DB_compliers_fr, performance ==2))
+
+```
+
+```{r results report regressions compliers free-riders, echo= FALSE, results= 'asis', warning=FALSE, message=FALSE}
+
+stargazer(compliers_high, freeriders_high, header= FALSE, dep.var.labels = "Log odds of behaving as", title = 'Binomial logistic regression to esimate the effect of frame and peer-enforcement on the log odds of complying and quota-violating behaviors in high-performance associations', covariate.labels = c('Loco frame', 'Peer-enforcement', 'Loco frame x Peer-enforcement','Constant'), column.labels = c("Compliers", "Quota violators"), model.names = FALSE, model.numbers = FALSE, omit.stat = c("aic", "ll"))
+
+stargazer(compliers_low, freeriders_low, header= FALSE, dep.var.labels = "Log odds of behaving as", title = 'Binomial logistic regression to esimate the effect of frame and peer-enforcement on the log odds of complying and quota-violating behaviors in low-performance associations', covariate.labels = c('Loco frame', 'Peer-enforcement', 'Loco frame x Peer-enforcement','Constant'), column.labels = c("Compliers", "Quota violators"), model.names = FALSE, model.numbers = FALSE, omit.stat = c("aic", "ll"))
