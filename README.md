@@ -11,7 +11,7 @@ __Correspondence to:__ María Ignacia Rivera Hechem, Bren School of Environmenta
 
 ## This repository
 
-This repository contains data and code used to generate the manuscript "Exploring the role of access regimes over internalized  stewardship behaviors of small-scale fishers". 
+This repository contains all the necessary material (i.e. data and code) to reproduce the manuscript "Exploring the role of access regimes over internalized  stewardship behaviors of small-scale fishers". 
 
 Here follows an overview of the folders in this repository:
 
@@ -20,3 +20,5 @@ Here follows an overview of the folders in this repository:
 **2. Scripts**: contains two .Rmd documents. One runs the code to generate the final manuscript, called "access_regimes_stewardship_code..Rmd" and the other one contains the code to generate the supporting information for the manuscript, called "si_access_regimes_stewardship_code.Rmd"
 
 **3. PDFs**: contains the .pdf documents for the manuscript and the supporting information.
+
+**4. Figures_and_Tables**: stores the figures and tables both in the manuscript and the supporting information. 
