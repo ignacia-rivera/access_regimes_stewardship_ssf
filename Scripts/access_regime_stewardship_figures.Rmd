@@ -1,0 +1,145 @@
+---
+title: "Code to generate the figures for Access regimes and fishers' stewardship"
+author: "Ignacia Rivera"
+date: "Sep 27, 2018"
+output: pdf_document 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(here)
+library(tidyverse)
+library(foreign)
+```
+
+## Metadata 
+
+1) union: unique id for each union (not diclosed to ensure anonimity)
+ 
+2) performance: type of association 
+
+- High performance =1
+- Low performance =2 
+
+3) framing: framing under which the game was played
+
+- Loco = 1 
+- Hake = 2 
+
+4) id: unique identifier for each fisher
+
+5) round: round of the game
+
+- From 1 to 20
+
+6) overextraction: number of units overharvested by a subject in a given round
+- From 0 to 50
+
+7) observer: the role assigned to that subject in that round 
+
+- Observer = 1
+- Inactive = -1
+- Inspected = 0
+- Round with no observation = NA
+
+8) overext_observed: overextraction performed by the subject being inspected by the subject 
+
+- From 0 to 50
+- Round with no observation = NA
+
+9) report: whether the subject reported a parnter's violation when having the chance
+
+- Yes = 1
+- No = 0
+- Round with no obsrevation = NA
+
+10) punished: whether the subject got punished after being observed violating the quota 
+
+- Yes = 1
+- No = 0
+- Round with no obsrevation = NA
+
+11) round_profit: profit made by the subject in a given round
+
+- From 0 to 1,500
+
+12) group_id: unique number for group identification
+
+```{r raw experiment data, echo = FALSE, message=FALSE, warning=FALSE, include=FALSE}
+
+DB <- read_csv(here('Data/DB_fishers_experiment.csv'), col_names = T) 
+write.dta(DB, here('Data/DB_fishers_experiment.dta'))
+
+# Generating variables
+
+DB <- DB %>% 
+  mutate(compliance = ((50 - overextraction) * 100)/50, # individual percent of compliance in each round
+         round_adj = ifelse(round >= 11, round - 11, round - 1), # adjusting rounds for linear models 
+         stage = ifelse(round < 11 , 1, 2), # generating dicotomic variable for stage
+         frame = ifelse(framing ==1, 'Loco', 'Hake'), # generating character variable for frame
+         frame = factor(frame, levels = c('Hake', 'Loco')), # sorting names of frames
+         Loco = ifelse(framing ==1, 1, 0),  # generating dummy variable for frame loco
+         Hake = ifelse(framing ==2, 1, 0), # generating dummy variable for frame hake
+         performance_name = ifelse(performance == 1, 'High performance', 'Low performance')) # generating character variable for performance 
+  
+
+```
+
+### Figure 1. Compliance evolution
+
+```{r plot complaince evolution, echo = FALSE, message=FALSE, warning=FALSE}
+
+plot_compliance <- ggplot(DB, aes(round, compliance, color=frame)) +
+  stat_summary(fun.y=mean, geom="line", size =1)+
+  scale_color_manual(values = c("red1", "royalblue3"), labels = c("Loco (CEAR)", "Hake (pseudo OA)"))+
+  theme_bw() + 
+  xlab(expression(bold("Round"))) +
+  ylab(expression(bold("Compliance (%)")))+
+  scale_x_continuous(expand = c(0,0), breaks=c(seq(0,20,1)))+
+  scale_y_continuous(limits = c(0,100), breaks = c(seq(0,100,20)), expand = c(0,0))+
+  geom_vline(xintercept=10.5, size=5.6, col= 'white')+
+  facet_wrap(~performance_name)+
+  theme(legend.position="bottom", legend.title=element_blank(), legend.text =    element_text(size=11), panel.grid = element_blank(), plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position="none",
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(size= 11),
+        panel.border = element_rect(colour = "dark grey"))
+
+plot_compliance
+
+ggsave("Fig1.png", plot=plot_compliance, path= "C:/Users/Ignacia Rivera/Box Sync/Ignacia (m_i_rivera@ucsb.edu)/Papers/Paper_Turfs_Cooperation/Results/Clean", scale= 1, units="cm", dpi=300)
+```
+
+## Figure 2. Probability of report
+
+```{r plot report, echo = FALSE, message=FALSE, warning=FALSE}
+
+# generating data frame for probability of report 
+
+DB_report_plot <- DB %>% 
+  filter(overext_observed > 0 & observer==1) %>% # only observers who inspected overharvested above zero had the opportunity to report
+  group_by(framing, performance) %>% 
+  summarise(
+    report_oportunities = n(),
+    report_counts= sum(report)) %>% 
+    mutate(probability = (report_counts)/report_oportunities)
+
+
+# Plot report
+plot_report <- ggplot(DB_report_plot, aes(x=as.factor(performance), y=probability, fill=as.factor(framing))) + 
+  geom_bar(stat='identity', width=0.5, position=position_dodge(0.6))+
+  scale_fill_manual(values = c("royalblue3", "red1"), labels = c("Loco (CEAR)", "Hake (pseudo OA)"))+
+  xlab(expression(bold("Performance")))+
+  ylab(expression(bold("Probability of reporting noncompliance")))+
+  scale_y_continuous(expand = c(0, 0), limits=c(0,0.8), breaks=seq(0,1, by=0.2))+
+  scale_x_discrete(labels=c("1" = "High", "2" = "Low"))+ 
+  theme_bw()+
+  theme(legend.position="bottom", legend.title=element_blank(), legend.text = element_text(size=9), panel.grid = element_blank(), plot.title = element_text(size = 11, hjust = 0.5), strip.text = element_text(size=9))
+
+plot_report
+
+ggsave("Fig2.png", plot=plot_report, path= "C:/Users/Ignacia Rivera/Box Sync/Ignacia (m_i_rivera@ucsb.edu)/Papers/Paper_Turfs_Cooperation/Results/Clean", scale= 1, width= 10, height = 12, units="cm", dpi=300)
+```
+
