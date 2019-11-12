@@ -19,4 +19,4 @@ Here follows an overview of the folders in this repository:
 
 **2. Scripts**: contains a .Rmd document to be run in R which reproduces the two figures in our manuscript. It also contains a .do file to be run in Stata which reproduces our analyses.
 
-**4. Figures_and_Tables**: stores the figures and tables both in our manuscript. 
+**3. Figures_and_Tables**: stores the figures and tables both in our manuscript. 
