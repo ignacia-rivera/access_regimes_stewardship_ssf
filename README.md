@@ -11,14 +11,12 @@ __Correspondence to:__ María Ignacia Rivera Hechem, Bren School of Environmenta
 
 ## This repository
 
-This repository contains all the necessary material (i.e. data and code) to reproduce the manuscript "Exploring the role of access regimes over internalized  stewardship behaviors of small-scale fishers". 
+This repository contains all the necessary material (i.e. data and code) to reproduce the results in the manuscript "Exploring the role of access regimes over internalized  stewardship behaviors of small-scale fishers". 
 
 Here follows an overview of the folders in this repository:
 
-**1. Data**: stores the raw database called "DB_fishers.csv", which is the output from our experiment. In addition, it stores the intermediate databases generated for data analysis.
+**1. Data**: stores the raw database called "DB_fishers?experiment", which is the output from our experiment. The database is stored in two formats, .csv and .dta which are used to create our figures in R and our analyses in Stata, respectively. 
 
-**2. Scripts**: contains two .Rmd documents. One runs the code to generate the final manuscript, called "access_regimes_stewardship_code..Rmd" and the other one contains the code to generate the supporting information for the manuscript, called "si_access_regimes_stewardship_code.Rmd"
+**2. Scripts**: contains a .Rmd document to be run in R which reproduces the two figures in our manuscript. It also contains a .do file to be run in Stata which reproduces our analyses.
 
-**3. PDFs**: contains the .pdf documents for the manuscript and the supporting information.
-
-**4. Figures_and_Tables**: stores the figures and tables both in the manuscript and the supporting information. 
+**4. Figures_and_Tables**: stores the figures and tables both in our manuscript. 
