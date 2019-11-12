@@ -114,7 +114,7 @@ foreach performance in 1 2 {
 								  if `performance' == 1  display _newline(2) "PERFORMANCE: High "
 								  if `performance' == 2  display _newline(2) "PERFORMANCE: Low "
 								  
-								  probit report ib0.Loco overext_observed if performance == `performance' & overext_observed >0 , vce(cluster group_id)
+								  probit report ib0.Loco overext_observed  round_adj if performance == `performance' & overext_observed >0 , vce(cluster group_id)
                                
                              local s = `s' + 1
 							 

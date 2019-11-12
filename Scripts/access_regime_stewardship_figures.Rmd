@@ -109,7 +109,6 @@ plot_compliance <- ggplot(DB, aes(round, compliance, color=frame)) +
 
 plot_compliance
 
-ggsave("Fig1.png", plot=plot_compliance, path= "C:/Users/Ignacia Rivera/Box Sync/Ignacia (m_i_rivera@ucsb.edu)/Papers/Paper_Turfs_Cooperation/Results/Clean", scale= 1, units="cm", dpi=300)
 ```
 
 ## Figure 2. Probability of report
@@ -140,6 +139,5 @@ plot_report <- ggplot(DB_report_plot, aes(x=as.factor(performance), y=probabilit
 
 plot_report
 
-ggsave("Fig2.png", plot=plot_report, path= "C:/Users/Ignacia Rivera/Box Sync/Ignacia (m_i_rivera@ucsb.edu)/Papers/Paper_Turfs_Cooperation/Results/Clean", scale= 1, width= 10, height = 12, units="cm", dpi=300)
 ```
 
