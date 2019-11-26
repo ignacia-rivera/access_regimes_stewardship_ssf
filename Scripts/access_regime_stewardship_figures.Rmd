@@ -87,12 +87,14 @@ DB <- DB %>%
 
 DB_group <- DB %>% 
   group_by(group_id, frame, round, performance) %>% 
-  summarize(mean_group_compliance = mean(compliance)) %>%  # generating character variable for performance 
+  summarize(mean_group_compliance = mean(compliance)) %>%  
   ungroup() %>% 
   group_by(performance, frame, round) %>% 
   summarise(mean_compliance = mean(mean_group_compliance), error = qnorm(0.975)*sd(mean_group_compliance)/sqrt(length(mean_group_compliance)), std.error = sd(mean_group_compliance)/sqrt(length(mean_group_compliance))) %>% 
   ungroup() %>% 
-  mutate(ci_low = mean_compliance - error, ci_high = mean_compliance + error)
+  mutate(ci_low = mean_compliance - error, 
+         ci_high = mean_compliance + error,
+         association = ifelse(performance == 1, 'High-performance associations', 'Low-performance associations')) 
 
 
 ```
@@ -100,6 +102,10 @@ DB_group <- DB %>%
 ### Figure 1. Compliance evolution
 
 ```{r plot complaince evolution, echo = FALSE, message=FALSE, warning=FALSE}
+
+#pdf(file = "Figure_1.pdf",   
+#    width = 6.5, 
+#    height = 4.5)
 
 plot_compliance <- ggplot(DB_group, aes(x= round, y=mean_compliance)) + 
   geom_point(aes(col = frame), size = 1.5) +
@@ -111,22 +117,24 @@ plot_compliance <- ggplot(DB_group, aes(x= round, y=mean_compliance)) +
   theme_bw() + 
   xlab(expression(bold("Round"))) +
   ylab(expression(bold("Compliance (%)")))+
-  scale_x_continuous(expand = c(0,0), breaks=c(seq(0,20,1)))+
+  scale_x_continuous(expand = c(0,0), breaks=c(seq(1,20,1)), labels = c(seq(0,9,1), seq(0,9,1)))+
   scale_y_continuous(limits = c(0,100), breaks = c(seq(0,100,20)), expand = c(0,0))+
-  #geom_vline(xintercept=10.5, size=5.6, col= 'white')+
-  facet_wrap(~performance)+
-  theme(legend.position="bottom", legend.title=element_blank(), legend.text =    element_text(size=11), panel.grid = element_blank(), plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
-  theme(legend.position="none",
-        panel.grid.major = element_blank(),
+  geom_vline(xintercept=10.5, size=5.4, col= 'white')+
+  facet_wrap(~association, strip.position = "top")+
+  theme(legend.position="bottom", legend.title=element_blank(), legend.text =    element_text(size=10), panel.grid = element_blank(), plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         strip.background = element_blank(),
-        strip.text = element_text(size= 11),
-        panel.border = element_rect(colour = "dark grey"))
-
+        strip.text = element_text(size= 12, face = "bold", hjust = 0, vjust = 3),
+        panel.border = element_rect(colour = "dark grey"), 
+        panel.spacing.x=unit(1, "lines"), 
+        axis.title.x = element_text(margin = margin(t = 10, r = 0, b = 0, l = 0)), 
+        axis.title = element_text(size = 12), 
+        axis.text = element_text(size = 11))
 
 plot_compliance
 
-
+#dev.off()
 
 ```
 
@@ -137,19 +145,20 @@ plot_compliance
 # generating data frame for probability of report 
 
 DB_report <- DB %>% 
-  filter(overext_observed > 0 & observer==1) %>% # only observers who inspected overharvested above zero had the opportunity to report
+  filter(overext_observed > 0 & observer==1) %>% # only observers (i.e. inspectors) who observed overharvest above zero had the opportunity to report
   group_by(framing, performance, group_id) %>% 
   summarise(
     report_oportunities = n(),
     report_counts= sum(report)) %>% 
+  ungroup() %>% 
     mutate(probability = (report_counts)/report_oportunities) %>% 
   group_by(framing, performance) %>% 
   summarise(mean_prob= mean(probability), error = qnorm(0.975)*sd(probability)/sqrt(length(probability))) %>% 
   mutate(ci_low = mean_prob, ci_low = mean_prob - error, ci_up= mean_prob + error)
 
-pdf(file = "Figure_2.pdf",   # The directory you want to save the file in
-    width = 5.5, # The width of the plot in inches
-    height = 7)
+#pdf(file = "Figure_2.pdf",   
+#    width = 4.2, 
+#    height = 5.5)
 
 # Plot report
 plot_report <- ggplot(DB_report, aes(x=as.factor(performance), y=mean_prob, fill=as.factor(framing))) + 
@@ -159,11 +168,10 @@ plot_report <- ggplot(DB_report, aes(x=as.factor(performance), y=mean_prob, fill
   xlab(expression(bold("Association type")))+
   ylab(expression(bold("Probability of reporting noncompliance")))+
   scale_y_continuous(expand = c(0, 0), limits=c(0,1), breaks=seq(0,1, by=0.2))+
-  scale_x_discrete(labels=c("1" = "High performance", "2" = "Low performance"))+ 
+  scale_x_discrete(labels=c("1" = "High-performance", "2" = "Low-performance"))+ 
   theme_bw()+
-  theme(legend.position="bottom", legend.title=element_blank(), legend.text = element_text(size=11, margin = margin(t= 10, r= 0, b =0, l =0)), 
+  theme(legend.position="bottom", legend.title=element_blank(), legend.text = element_text(size=10, margin = margin(t= 10, r= 0, b =0, l =0)), 
         panel.grid = element_blank(), 
-        plot.title = element_text(size = 12, hjust = 0.5), 
         strip.text = element_text(size=11), 
         axis.title = element_text(size = 12), 
         axis.text = element_text(size = 11), 
@@ -172,7 +180,7 @@ plot_report <- ggplot(DB_report, aes(x=as.factor(performance), y=mean_prob, fill
 
 plot_report
 
-dev.off()
+#dev.off()
 ```
 
 
