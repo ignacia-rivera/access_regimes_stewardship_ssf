@@ -2,4 +2,6 @@
 .Rhistory
 .RData
 .Ruserdata
-.Text
+.Text/Cover_letter.docx
+.Text/Main_text.docx
+.Text/Supporting_information.docx
