@@ -7,9 +7,11 @@ output: pdf_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(plyr)
 library(here)
 library(tidyverse)
 library(foreign)
+
 ```
 
 ## Metadata 
@@ -65,10 +67,11 @@ library(foreign)
 
 12) group_id: unique number for group identification
 
+
 ```{r raw experiment data, echo = FALSE, message=FALSE, warning=FALSE, include=FALSE}
 
 DB <- read_csv(here('Data/DB_fishers_experiment.csv'), col_names = T) 
-write.dta(DB, here('Data/DB_fishers_experiment.dta'))
+
 
 # Generating variables
 
@@ -80,8 +83,17 @@ DB <- DB %>%
          frame = factor(frame, levels = c('Hake', 'Loco')), # sorting names of frames
          Loco = ifelse(framing ==1, 1, 0),  # generating dummy variable for frame loco
          Hake = ifelse(framing ==2, 1, 0), # generating dummy variable for frame hake
-         performance_name = ifelse(performance == 1, 'High performance', 'Low performance')) # generating character variable for performance 
-  
+         performance_name = ifelse(performance == 1, 'High performance', 'Low performance')) 
+
+DB_group <- DB %>% 
+  group_by(group_id, frame, round, performance) %>% 
+  summarize(mean_group_compliance = mean(compliance)) %>%  # generating character variable for performance 
+  ungroup() %>% 
+  group_by(performance, frame, round) %>% 
+  summarise(mean_compliance = mean(mean_group_compliance), error = qnorm(0.975)*sd(mean_group_compliance)/sqrt(length(mean_group_compliance)), std.error = sd(mean_group_compliance)/sqrt(length(mean_group_compliance))) %>% 
+  ungroup() %>% 
+  mutate(ci_low = mean_compliance - error, ci_high = mean_compliance + error)
+
 
 ```
 
@@ -89,16 +101,20 @@ DB <- DB %>%
 
 ```{r plot complaince evolution, echo = FALSE, message=FALSE, warning=FALSE}
 
-plot_compliance <- ggplot(DB, aes(round, compliance, color=frame)) +
-  stat_summary(fun.y=mean, geom="line", size =1)+
+plot_compliance <- ggplot(DB_group, aes(x= round, y=mean_compliance)) + 
+  geom_point(aes(col = frame), size = 1.5) +
+  geom_line(aes(col=frame))+
+  #geom_errorbar(aes(ymin=mean_compliance - std.error, ymax= mean_compliance + std.error, col = frame)) +
+  geom_ribbon(aes(ymin=mean_compliance - error, ymax= mean_compliance + error, col = NA, fill = frame), alpha = .2) +
   scale_color_manual(values = c("red1", "royalblue3"), labels = c("Loco (CEAR)", "Hake (pseudo OA)"))+
+  scale_fill_manual(values = c("red1", "royalblue3"), labels = c("Loco (CEAR)", "Hake (pseudo OA)"))+
   theme_bw() + 
   xlab(expression(bold("Round"))) +
   ylab(expression(bold("Compliance (%)")))+
   scale_x_continuous(expand = c(0,0), breaks=c(seq(0,20,1)))+
   scale_y_continuous(limits = c(0,100), breaks = c(seq(0,100,20)), expand = c(0,0))+
-  geom_vline(xintercept=10.5, size=5.6, col= 'white')+
-  facet_wrap(~performance_name)+
+  #geom_vline(xintercept=10.5, size=5.6, col= 'white')+
+  facet_wrap(~performance)+
   theme(legend.position="bottom", legend.title=element_blank(), legend.text =    element_text(size=11), panel.grid = element_blank(), plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
   theme(legend.position="none",
         panel.grid.major = element_blank(),
@@ -107,7 +123,10 @@ plot_compliance <- ggplot(DB, aes(round, compliance, color=frame)) +
         strip.text = element_text(size= 11),
         panel.border = element_rect(colour = "dark grey"))
 
+
 plot_compliance
+
+
 
 ```
 
@@ -117,27 +136,44 @@ plot_compliance
 
 # generating data frame for probability of report 
 
-DB_report_plot <- DB %>% 
+DB_report <- DB %>% 
   filter(overext_observed > 0 & observer==1) %>% # only observers who inspected overharvested above zero had the opportunity to report
-  group_by(framing, performance) %>% 
+  group_by(framing, performance, group_id) %>% 
   summarise(
     report_oportunities = n(),
     report_counts= sum(report)) %>% 
-    mutate(probability = (report_counts)/report_oportunities)
+    mutate(probability = (report_counts)/report_oportunities) %>% 
+  group_by(framing, performance) %>% 
+  summarise(mean_prob= mean(probability), error = qnorm(0.975)*sd(probability)/sqrt(length(probability))) %>% 
+  mutate(ci_low = mean_prob, ci_low = mean_prob - error, ci_up= mean_prob + error)
 
+pdf(file = "Figure_2.pdf",   # The directory you want to save the file in
+    width = 5.5, # The width of the plot in inches
+    height = 7)
 
 # Plot report
-plot_report <- ggplot(DB_report_plot, aes(x=as.factor(performance), y=probability, fill=as.factor(framing))) + 
+plot_report <- ggplot(DB_report, aes(x=as.factor(performance), y=mean_prob, fill=as.factor(framing))) + 
   geom_bar(stat='identity', width=0.5, position=position_dodge(0.6))+
+  geom_errorbar(aes(x=as.factor(performance), ymin = ci_low, ymax= ci_up), width=0.25, position=position_dodge(0.6), size = 0.5)+
   scale_fill_manual(values = c("royalblue3", "red1"), labels = c("Loco (CEAR)", "Hake (pseudo OA)"))+
-  xlab(expression(bold("Performance")))+
+  xlab(expression(bold("Association type")))+
   ylab(expression(bold("Probability of reporting noncompliance")))+
-  scale_y_continuous(expand = c(0, 0), limits=c(0,0.8), breaks=seq(0,1, by=0.2))+
-  scale_x_discrete(labels=c("1" = "High", "2" = "Low"))+ 
+  scale_y_continuous(expand = c(0, 0), limits=c(0,1), breaks=seq(0,1, by=0.2))+
+  scale_x_discrete(labels=c("1" = "High performance", "2" = "Low performance"))+ 
   theme_bw()+
-  theme(legend.position="bottom", legend.title=element_blank(), legend.text = element_text(size=9), panel.grid = element_blank(), plot.title = element_text(size = 11, hjust = 0.5), strip.text = element_text(size=9))
+  theme(legend.position="bottom", legend.title=element_blank(), legend.text = element_text(size=11, margin = margin(t= 10, r= 0, b =0, l =0)), 
+        panel.grid = element_blank(), 
+        plot.title = element_text(size = 12, hjust = 0.5), 
+        strip.text = element_text(size=11), 
+        axis.title = element_text(size = 12), 
+        axis.text = element_text(size = 11), 
+        axis.title.y = element_text(margin = margin(t = 0, r = 10, b = 0, l = 0)), 
+        axis.title.x = element_text(margin = margin(t = 10, r = 0, b = 0, l = 0)))
 
 plot_report
 
+dev.off()
 ```
+
+
 

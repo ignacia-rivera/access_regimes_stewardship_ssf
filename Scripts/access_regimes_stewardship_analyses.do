@@ -120,3 +120,8 @@ foreach performance in 1 2 {
 							 
                          }
                
+***********************************************************
+* Estimating 95% CI for compliance figures
+***********************************************************
+
+regress compliance round_adj if performance == 1 & framing == 1 & stage ==1, vce(cluster  group_id)
