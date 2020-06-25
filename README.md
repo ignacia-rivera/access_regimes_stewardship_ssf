@@ -15,8 +15,8 @@ This repository contains all the necessary material (i.e. data and code) to repr
 
 Here follows an overview of the folders in this repository:
 
-**1. Data**: stores the raw database called "DB_fishers_experiment", which is the output from our experiment. The database is stored in two formats, .csv and .dta which are used to create our figures in R and our analyses in Stata, respectively. 
+**1. Data**: stores the raw database called "DB_fishers", which is the output from our experiment. The database is stored in two formats, .csv and .dta which are used to create our figures in R and our analyses in Stata, respectively.
 
 **2. Scripts**: contains a .Rmd document to be run in R which reproduces the two figures in our manuscript. It also contains a .do file to be run in Stata which reproduces our analyses.
 
-**3. Figures_and_Tables**: stores the figures and tables both in our manuscript. 
+**3. Figures_and_Tables**: stores the figures and tables in our manuscript. 
