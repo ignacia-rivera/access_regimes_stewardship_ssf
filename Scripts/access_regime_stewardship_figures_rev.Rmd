@@ -11,7 +11,6 @@ library(plyr)
 library(here)
 library(tidyverse)
 library(foreign)
-
 ```
 
 ## Metadata 
@@ -70,7 +69,7 @@ library(foreign)
 
 ```{r raw experiment data, echo = FALSE, message=FALSE, warning=FALSE, include=FALSE}
 
-DB <- read_csv(here('Data/DB_fishers_experiment.csv'), col_names = T) 
+DB <- read_csv(here::here('Data/DB_fishers.csv'), col_names = T) 
 
 
 # Generating variables
@@ -94,7 +93,8 @@ DB_group <- DB %>%
   ungroup() %>% 
   mutate(ci_low = mean_compliance - error, 
          ci_high = mean_compliance + error,
-         association = ifelse(performance == 1, 'High-performance associations', 'Low-performance associations')) 
+         association = ifelse(performance == 1, 'High-performance associations', 'Low-performance associations'), 
+         stage = ifelse(round < 11, 'Non-enforced', 'Peer-enforced')) 
 
 
 ```
@@ -108,12 +108,12 @@ DB_group <- DB %>%
 #    height = 4.5)
 
 plot_compliance <- ggplot(DB_group, aes(x= round, y=mean_compliance)) + 
-  geom_point(aes(col = frame), size = 1.5) +
-  geom_line(aes(col=frame))+
+  geom_point(aes(col = frame), size = 1.3) +
+  geom_line(aes(col=frame), size = .67)+
   #geom_errorbar(aes(ymin=mean_compliance - std.error, ymax= mean_compliance + std.error, col = frame)) +
-  geom_ribbon(aes(ymin=mean_compliance - error, ymax= mean_compliance + error, col = NA, fill = frame), alpha = .2) +
-  scale_color_manual(values = c("red1", "royalblue3"), labels = c("Loco (CEAR)", "Hake (pseudo OA)"))+
-  scale_fill_manual(values = c("red1", "royalblue3"), labels = c("Loco (CEAR)", "Hake (pseudo OA)"))+
+  geom_ribbon(aes(ymin=mean_compliance - error, ymax= mean_compliance + error, col = NA, fill = frame), alpha = .15, show.legend = FALSE) +
+  scale_color_manual(values = c("red1", "royalblue3"), labels = c("pseudo OA (Hake)", "CEAR (Loco)"))+
+  scale_fill_manual(values = c("red1", "royalblue3"), labels = c("pseudo OA (Hake)", "CEAR (Loco)"))+
   theme_bw() + 
   xlab(expression(bold("Round"))) +
   ylab(expression(bold("Compliance (%)")))+
@@ -121,20 +121,31 @@ plot_compliance <- ggplot(DB_group, aes(x= round, y=mean_compliance)) +
   scale_y_continuous(limits = c(0,100), breaks = c(seq(0,100,20)), expand = c(0,0))+
   geom_vline(xintercept=10.5, size=5.4, col= 'white')+
   facet_wrap(~association, strip.position = "top")+
-  theme(legend.position="bottom", legend.title=element_blank(), legend.text =    element_text(size=10), panel.grid = element_blank(), plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(legend.position="bottom", legend.title=element_blank(), legend.text =    element_text(size=11), panel.grid = element_blank(), plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
   theme(panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         strip.background = element_blank(),
-        strip.text = element_text(size= 12, face = "bold", hjust = 0, vjust = 3),
+        strip.text = element_text(size= 11, face = "bold", hjust = 0, vjust = 3),
         panel.border = element_rect(colour = "dark grey"), 
         panel.spacing.x=unit(1, "lines"), 
         axis.title.x = element_text(margin = margin(t = 10, r = 0, b = 0, l = 0)), 
-        axis.title = element_text(size = 12), 
-        axis.text = element_text(size = 11))
+        axis.title = element_text(size = 11), 
+        axis.text = element_text(size = 8))
 
 plot_compliance
 
-#dev.off()
+#ggsave(
+#  "Figure_1_rev.pdf",
+#  plot = plot_compliance,
+#  device = "pdf",
+#  path = here::here("Figures_and_tables"),
+#  scale = 1,
+#  width = 16,
+#  height = 10,
+#  units = "cm",
+#  dpi = 600,
+#  limitsize = TRUE
+#)
 
 ```
 
@@ -163,10 +174,10 @@ DB_report <- DB %>%
 # Plot report
 plot_report <- ggplot(DB_report, aes(x=as.factor(performance), y=mean_prob, fill=as.factor(framing))) + 
   geom_bar(stat='identity', width=0.5, position=position_dodge(0.6))+
-  geom_errorbar(aes(x=as.factor(performance), ymin = ci_low, ymax= ci_up), width=0.25, position=position_dodge(0.6), size = 0.5)+
-  scale_fill_manual(values = c("royalblue3", "red1"), labels = c("Loco (CEAR)", "Hake (pseudo OA)"))+
+  geom_errorbar(aes(x=as.factor(performance), ymin = ci_low, ymax= ci_up), width=0.25, position=position_dodge(0.6), size = 0.4)+
+  scale_fill_manual(values = c("royalblue3", "red1"), labels = c("CEAR (Loco)", "pseudo OA (Hake)"))+
   xlab(expression(bold("Association type")))+
-  ylab(expression(bold("Probability of reporting noncompliance")))+
+  ylab(expression(bold("Probability of reporting")))+
   scale_y_continuous(expand = c(0, 0), limits=c(0,1), breaks=seq(0,1, by=0.2))+
   scale_x_discrete(labels=c("1" = "High-performance", "2" = "Low-performance"))+ 
   theme_bw()+
@@ -180,7 +191,18 @@ plot_report <- ggplot(DB_report, aes(x=as.factor(performance), y=mean_prob, fill
 
 plot_report
 
-#dev.off()
+#ggsave(
+#  "Figure_2_rev.pdf",
+#  plot = plot_report,
+#  device = "pdf",
+#  path = here::here("Figures_and_tables"),
+#  scale = 1,
+#  width = 11,
+#  height = 14,
+#  units = "cm",
+#  dpi = 600,
+#  limitsize = TRUE
+#)
 ```
 
 
