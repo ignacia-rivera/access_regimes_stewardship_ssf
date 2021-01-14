@@ -10,6 +10,11 @@ knitr::opts_chunk$set(echo = TRUE)
 library(gt)
 library(here)
 library(tidyverse)
+library(sandwich)
+library(lmtest)
+library(nlme)
+library(lme4)
+library(censReg)
 ```
 
 ## Metadata 
@@ -100,6 +105,19 @@ db.agg <- DB %>%
   summarise(compliance= mean(compliance)) %>% 
   select(-id) 
 
+# Testing significant differences between frames for each association type across all rounds
+
+frame.comp.all <- db.agg %>%
+  group_by(performance.nm) %>% 
+  summarize(p.value = wilcox.test(compliance ~ frame.nm)$p.value)
+
+# Testing significant differences between association type for each frame across all rounds
+
+performance.comp.all <- db.agg %>%
+  group_by(frame.nm) %>% 
+  summarize(p.value = wilcox.test(compliance ~ performance.nm)$p.value)
+
+
 # Testing significant differences between frames
 
 frame.comp <- db.agg %>%
@@ -141,10 +159,10 @@ gt(test.comp) %>%
 #stats_compliance$Frame <- factor(stats_compliance$Frame, levels = c("Loco", "Hake"))
 
 db.summary <- DB %>% 
-  group_by(performance.nm, frame.nm, stage.nm, id) %>% 
+  group_by(performance.nm, frame.nm, id) %>% 
   summarise(mean.ind = mean(compliance)) %>% 
   ungroup() %>% 
-  group_by(performance.nm, frame.nm, stage.nm) %>% 
+  group_by(performance.nm, frame.nm) %>% 
   summarise(mean = mean(mean.ind),
           sd = sd(mean.ind),
           n = length(mean.ind)) %>% 
@@ -152,20 +170,19 @@ db.summary <- DB %>%
          ci.low = mean - error, 
          ci.high = mean + error) %>% 
   rename(
-    Stage = stage.nm,
     Performance = performance.nm,
     Frame = frame.nm
   )
 
-bar_compliance <- ggplot(db.summary, aes(x=Stage, y= mean, fill= reorder(Frame, -mean))) + 
+bar_compliance <- ggplot(db.summary, aes(x=Performance, y= mean, fill= reorder(Frame, -mean))) + 
   geom_bar(stat='identity', width=0.5, position=position_dodge(0.6))+
-  geom_errorbar(aes(x=as.factor(Stage), ymin = ci.low, ymax= ci.high), width=0.25, position=position_dodge(0.6), size = 0.4)+
+  geom_errorbar(aes(x= Performance, ymin = ci.low, ymax= ci.high), width=0.25, position=position_dodge(0.6), size = 0.4)+
   scale_fill_manual(values = c("royalblue3", "red1"), labels = c("CEAR (Loco)", "pseudo OA (Hake)"))+
-  xlab(expression(bold("Stage")))+
+  xlab(expression(bold("Association Type")))+
   ylab(expression(bold("Compliance (%)")))+
   scale_y_continuous(expand = c(0, 0), limits=c(0,100), breaks=seq(0,100, by=20))+
-  facet_wrap(~Performance)+
-  #scale_x_discrete(labels=c("1" = "High-performance", "2" = "Low-performance"))+ 
+  #facet_wrap(~Performance)+
+  scale_x_discrete(labels=c("1" = "High-performance", "2" = "Low-performance"))+ 
   theme_bw()+
   theme(legend.position="bottom", legend.title=element_blank(), legend.text = element_text(size=10, margin = margin(t= 10, r= 0, b =0, l =0)), 
         panel.grid = element_blank(), 
@@ -395,9 +412,346 @@ plot_report <- ggplot(db.punish.plot, aes(x= Performance, y= mean, fill= reorder
         axis.title.y = element_text(margin = margin(t = 0, r = 8, b = 0, l = 0)), 
         axis.title.x = element_text(margin = margin(t = 8, r = 0, b = 0, l = 0)))
 
-ggsave("Fig2.pdf", plot = plot_report, device = "pdf", path = here::here("figures"), scale = 1, width = 16, height = 12, units = "cm", dpi = 300, limitsize = TRUE)
+#ggsave("Fig2.pdf", plot = plot_report, device = "pdf", path = here::here("figures"), scale = 1, width = 16, height = 12, units = "cm", dpi = 300, limitsize = TRUE)
 
 
 ```
 
+## 4. Parametric individual analyses 
 
+```{r individual database, echo = FALSE}
+
+db.ind <- DB %>% 
+  # creating context variables 
+  mutate(
+    cear = ifelse(frame.nm == 'Loco', 1, 0), 
+    peer_enf = ifelse(stage.nm == 'Peer-enforced', 1, 0), 
+    hp = ifelse(performance.nm == 'High performance', 1, 0), 
+    non_enf_rounds = ifelse(round < 11, round-1,0), 
+    peer_enf_rounds = ifelse(round > 10, round - 11, 0), 
+    cear_peer_enf = ifelse(frame.nm == 'Loco' 
+                           & stage.nm == 'Peer-enforced', 1, 0), 
+    cear_hp = ifelse(frame.nm == 'Loco' 
+                           & performance.nm == 'High performance', 1, 0), 
+    peer_enf_hp = ifelse(stage.nm == 'Peer-enforced' &
+                                  performance.nm == 'High performance', 1, 0), 
+    cear_hp_non_enf_rounds = ifelse(frame.nm == 'Loco'&
+                                    performance.nm == 'High performance'& 
+                                    round < 11, 
+                                    round - 1, 0), 
+    cear_hp_peer_enf_rounds = ifelse(frame.nm == 'Loco' &
+                                    performance.nm == 'High performance'& 
+                                    round > 10,
+                                    round - 11, 0), 
+    oa_hp_non_enf_rounds = ifelse(frame.nm == 'Hake'&
+                                    performance.nm == 'High performance'& 
+                                    round < 11, 
+                                    round - 1, 0),
+    oa_hp_peer_enf_rounds = ifelse(frame.nm == 'Hake'&
+                                    performance.nm == 'High performance'& 
+                                    round > 10, 
+                                    round - 11, 0),
+    cear_lp_non_enf_rounds = ifelse(frame.nm == 'Loco'&
+                                    performance.nm == 'Low performance'& 
+                                    round < 11, 
+                                    round - 1, 0), 
+    cear_lp_peer_enf_rounds = ifelse(frame.nm == 'Loco'&
+                                    performance.nm == 'Low performance'& 
+                                    round > 10, 
+                                    round - 11, 0), 
+    oa_lp_non_enf_rounds = ifelse(frame.nm == 'Hake'&
+                                    performance.nm == 'Low performance'& 
+                                    round < 11, 
+                                    round - 1, 0),
+    oa_lp_peer_enf_rounds = ifelse(frame.nm == 'Hake'&
+                                    performance.nm == 'Low performance'& 
+                                    round > 10, 
+                                    round - 11, 0)) %>% 
+  # creating variables in Cassari and Luni, 2009
+  ## avg compliance in non-enf stage per individual
+  group_by(id) %>%
+  mutate(avg_comp_non_enf = mean(compliance[round<11])) %>% 
+  ungroup() %>% 
+  ## avg compliance and overharvest in the group
+  group_by(group_id, round) %>% 
+  mutate(sum_comp = sum(compliance),
+         avg_group_comp = sum_comp/5) %>% 
+  ungroup() %>% 
+  ## avg compliance of other group members
+  mutate(avg_oth_comp = (sum_comp - compliance)/4) %>% 
+  group_by(id) %>% 
+  ## avg compliance of other group members in previous round 
+  mutate(avg_oth_comp_prev = dplyr::lag(avg_oth_comp, n=1),
+         ## average group compliance in the previous round
+         avg_group_comp_prev = dplyr::lag(avg_group_comp, n=1),
+         ## subject was punished in previous round
+         punished_prev_round = ifelse(is.na(dplyr::lag(punished)), 0, dplyr::lag(punished)),
+         ## subject was punished in the second previous round
+         punished_prev_prev_round = dplyr::lag(punished_prev_round),
+         ## the subject choose to report in the previous round
+         report_prev_round = ifelse(is.na(dplyr::lag(report)), 0, dplyr::lag(report))) %>% 
+  ungroup() %>% 
+  mutate(## observed compliance 
+         obs_comp = ifelse(is.na(overext_observed), 0,((50 - overext_observed) * 100)/50),
+         ## deviation of inspected relative to average group compliance in prev round
+         comp_inspected_deviation = obs_comp - avg_group_comp_prev,
+         ## positive deviation of inspected relative to average group compliance in prev round
+         pos_comp_inspected_deviation = ifelse(comp_inspected_deviation > 0 , comp_inspected_deviation, 0),
+         ## negative deviation of inspected relative to average group compliance in prev round
+         neg_comp_inspected_deviation = ifelse(comp_inspected_deviation < 0 , abs(comp_inspected_deviation), 0),
+         # subject’s compliance minus average group’s compliance in the previous round
+         diff_comp_group_comp_prev = compliance - avg_oth_comp_prev)
+  
+# exploring variables correlation
+
+# db.ind.enf <- filter(db.ind, stage == 2) 
+# ggpairs(db.ind.enf[, c("avg_comp_non_enf", "avg_oth_comp_prev", "cum_punishment", "report_prev_round", 'obs_overharvest_prev_round' )])
+
+```
+
+### 4.a. Determinants of individual compliance decisions in the peer-enforced stage following (Cassari and Luini, 2009)
+
+
+```{r linear mixed models of compliance at the individual level in peer-enforced stage with random effects, echo = FALSE}
+
+comp_ind_hp_cear <- lme(compliance ~ avg_comp_non_enf + avg_oth_comp_prev +  punished_prev_round + punished_prev_prev_round + report_prev_round + peer_enf_rounds, random=~1|id, na.action= na.exclude, data = filter(db.ind, hp == 1 & frame.nm =="Loco" & stage.nm == 'Peer-enforced'))
+
+comp_ind_hp_oa <- lme(compliance ~ avg_comp_non_enf + avg_oth_comp_prev +  punished_prev_round + punished_prev_prev_round + report_prev_round + peer_enf_rounds, random=~1|id, na.action= na.exclude, data = filter(db.ind, hp == 1 & frame.nm =="Hake" & stage.nm == 'Peer-enforced'))
+
+comp_ind_lp_cear <- lme(compliance ~ avg_comp_non_enf + avg_oth_comp_prev +  punished_prev_round + punished_prev_prev_round + report_prev_round + peer_enf_rounds, random=~1|id, na.action= na.exclude, data = filter(db.ind, hp == 0 & frame.nm =="Loco" & stage.nm == 'Peer-enforced'))
+
+comp_ind_lp_oa <- lme(compliance ~ avg_comp_non_enf + avg_oth_comp_prev +  punished_prev_round + punished_prev_prev_round + report_prev_round + peer_enf_rounds, random=~1|id, na.action= na.exclude, data = filter(db.ind, hp == 0 & frame.nm =="Hake" & stage.nm == 'Peer-enforced'))
+
+# printing results
+
+summary(comp_ind_hp_cear)
+intervals(comp_ind_hp_cear)
+
+summary(comp_ind_hp_oa)
+intervals(comp_ind_hp_oa)
+
+summary(comp_ind_lp_cear)
+intervals(comp_ind_lp_cear)
+
+summary(comp_ind_lp_oa)
+intervals(comp_ind_lp_oa)
+
+```
+
+```{r tobit mixed models of compliance at the individual level in peer-enforced stage with random effects, echo = FALSE}
+
+# transforming to panel
+
+db.ind <- data.frame(db.ind)
+panel.db.hp.cear <- plm::pdata.frame(filter(db.ind, hp == 1 & frame.nm =="Loco" & stage.nm == "Peer-enforced"), c("id", "round"))
+panel.db.hp.oa <- plm::pdata.frame(filter(db.ind, hp == 1 & frame.nm =="Hake" & stage.nm == "Peer-enforced"), c("id", "round"))
+panel.db.lp.cear <- plm::pdata.frame(filter(db.ind, hp == 0 & frame.nm =="Loco" & stage.nm == "Peer-enforced"), c("id", "round"))
+panel.db.lp.oa <- plm::pdata.frame(filter(db.ind, hp == 0 & frame.nm =="Hake" & stage.nm == "Peer-enforced"), c("id", "round"))
+
+# computing tobit with individual random effects with BHHH mthod for convergence
+
+tobit_comp_ind_hp_cear <- censReg(compliance ~ avg_comp_non_enf + avg_oth_comp_prev +  punished_prev_round +  punished_prev_prev_round+ report_prev_round + peer_enf_rounds, left = 0, right = 100, data = panel.db.hp.cear, method = "BHHH")
+
+tobit_comp_ind_hp_oa <- censReg(compliance ~ avg_comp_non_enf + avg_oth_comp_prev +  punished_prev_round + punished_prev_prev_round + report_prev_round + peer_enf_rounds, left = 0, right = 100, data = panel.db.hp.oa, method = "BHHH")
+
+tobit_comp_ind_lp_cear <- censReg(compliance ~ avg_comp_non_enf + avg_oth_comp_prev +  punished_prev_round +  punished_prev_prev_round + report_prev_round + peer_enf_rounds, left = 0, right = 100, data = panel.db.lp.cear, method = "BHHH")
+
+tobit_comp_ind_lp_oa <- censReg(compliance ~ avg_comp_non_enf + avg_oth_comp_prev +  punished_prev_round + punished_prev_prev_round + report_prev_round + peer_enf_rounds, left = 0, right = 100, data = panel.db.lp.oa, method = "BHHH")
+
+
+# print results
+
+summary(tobit_comp_ind_hp_cear)
+confint(tobit_comp_ind_hp_cear)
+
+summary(tobit_comp_ind_hp_oa)
+confint(tobit_comp_ind_hp_oa)
+
+summary(tobit_comp_ind_lp_cear)
+confint(tobit_comp_ind_lp_cear)
+
+summary(tobit_comp_ind_lp_oa)
+confint(tobit_comp_ind_lp_oa)
+```
+
+
+### 4.b. Determinants of individual enforcement decisions 
+
+
+```{r report probit models at the individual level, echo = FALSE}
+
+# selecting only subjects that had the opportunity to punish
+
+report_hp_cear <- glm(report ~ avg_comp_non_enf + neg_comp_inspected_deviation + pos_comp_inspected_deviation + diff_comp_group_comp_prev + avg_oth_comp_prev + punished_prev_round + punished_prev_prev_round + peer_enf_rounds, na.action= na.exclude, data = filter(db.ind, hp == 1 & frame.nm =="Loco" & observer == 1 & overext_observed > 0), family = binomial(link = "probit"))
+
+report_hp_oa <- glm(report ~ avg_comp_non_enf + neg_comp_inspected_deviation + pos_comp_inspected_deviation + diff_comp_group_comp_prev + avg_oth_comp_prev + punished_prev_round + punished_prev_prev_round + peer_enf_rounds, na.action= na.exclude, data = filter(db.ind, hp == 1 & frame.nm =="Hake" & observer == 1 & overext_observed > 0), family = binomial(link = "probit"))
+
+report_lp_cear <- glm(report ~ avg_comp_non_enf + neg_comp_inspected_deviation + pos_comp_inspected_deviation + diff_comp_group_comp_prev + avg_oth_comp_prev + punished_prev_round + punished_prev_prev_round + peer_enf_rounds, na.action= na.exclude, data = filter(db.ind, hp == 0 & frame.nm =="Loco" & observer == 1 & overext_observed > 0), family = binomial(link = "probit"))
+
+report_lp_oa <- glm(report ~ avg_comp_non_enf + neg_comp_inspected_deviation + pos_comp_inspected_deviation + diff_comp_group_comp_prev + avg_oth_comp_prev + punished_prev_round + punished_prev_prev_round + peer_enf_rounds, na.action= na.exclude, data = filter(db.ind, hp == 0 & frame.nm =="Hake" & observer == 1 & overext_observed > 0), family = binomial(link = "probit"))
+
+# printing results
+
+summary(report_hp_cear)
+confint(report_hp_cear)
+
+summary(report_hp_oa)
+confint(report_hp_oa)
+
+
+summary(report_lp_cear)
+confint(report_lp_cear)
+
+summary(report_lp_oa)
+confint(report_lp_oa)
+```
+
+
+```{r report probit models at the individual level with random effects, echo = FALSE}
+
+# from https://stats.idre.ucla.edu/r/dae/mixed-effects-logistic-regression/
+
+## models fail converge with too many variables so I removed average contribution of others in previous round, the second lag of punishment and round
+
+report_hp_cear_re <- glmer(report ~ avg_comp_non_enf + neg_comp_inspected_deviation + pos_comp_inspected_deviation + diff_comp_group_comp_prev + punished_prev_round + (1|id), na.action= na.exclude, data = filter(db.ind, hp == 1 & frame.nm =="Loco" & observer == 1 & overext_observed > 0), family = binomial(link = "probit"))
+
+report_hp_oa_re <- glmer(report ~ avg_comp_non_enf + neg_comp_inspected_deviation + pos_comp_inspected_deviation + diff_comp_group_comp_prev + punished_prev_round + (1|id), na.action= na.exclude, data = filter(db.ind, hp == 1 & frame.nm =="Hake" & observer == 1 & overext_observed > 0), family = binomial(link = "probit"))
+
+report_lp_cear_re <- glmer(report ~ avg_comp_non_enf + neg_comp_inspected_deviation + pos_comp_inspected_deviation + diff_comp_group_comp_prev + punished_prev_round + (1|id), na.action= na.exclude, data = filter(db.ind, hp == 0 & frame.nm =="Loco" & observer == 1 & overext_observed > 0), family = binomial(link = "probit"))
+
+report_lp_oa_re <- glmer(report ~ avg_comp_non_enf + neg_comp_inspected_deviation + pos_comp_inspected_deviation + diff_comp_group_comp_prev + punished_prev_round + (1|id), na.action= na.exclude, data = filter(db.ind, hp == 0 & frame.nm =="Hake" & observer == 1 & overext_observed > 0), family = binomial(link = "probit"))
+
+# print the mod results without correlations among fixed effects
+
+summary(report_hp_cear_re)
+
+summary(report_hp_oa_re)
+
+summary(report_lp_cear_re)
+
+summary(report_lp_oa_re)
+
+
+```
+
+```{r report linear models at the individual level, echo = FALSE}
+
+# selecting only subjects that had the opportunity to punish
+
+lm_report_hp_cear <- lm(report ~ avg_comp_non_enf + neg_comp_inspected_deviation + pos_comp_inspected_deviation + diff_comp_group_comp_prev + avg_oth_comp_prev + punished_prev_round + punished_prev_prev_round + peer_enf_rounds, na.action= na.exclude, data = filter(db.ind, hp == 1 & frame.nm =="Loco" & observer == 1 & overext_observed > 0))
+
+lm_report_hp_oa <- lm(report ~ avg_comp_non_enf + neg_comp_inspected_deviation + pos_comp_inspected_deviation + diff_comp_group_comp_prev + avg_oth_comp_prev + punished_prev_round + punished_prev_prev_round + peer_enf_rounds, na.action= na.exclude, data = filter(db.ind, hp == 1 & frame.nm =="Hake" & observer == 1 & overext_observed > 0))
+
+lm_report_lp_cear <- lm(report ~ avg_comp_non_enf + neg_comp_inspected_deviation + pos_comp_inspected_deviation + diff_comp_group_comp_prev + avg_oth_comp_prev + punished_prev_round + punished_prev_prev_round + peer_enf_rounds, na.action= na.exclude, data = filter(db.ind, hp == 0 & frame.nm =="Loco" & observer == 1 & overext_observed > 0))
+
+lm_report_lp_oa <- lm(report ~ avg_comp_non_enf + neg_comp_inspected_deviation + pos_comp_inspected_deviation + diff_comp_group_comp_prev + avg_oth_comp_prev + punished_prev_round + punished_prev_prev_round + peer_enf_rounds, na.action= na.exclude, data = filter(db.ind, hp == 0 & frame.nm =="Hake" & observer == 1 & overext_observed > 0))
+
+# printing results
+
+summary(lm_report_hp_cear)
+confint(lm_report_hp_cear)
+
+summary(lm_report_hp_oa)
+confint(lm_report_hp_oa)
+
+
+summary(lm_report_lp_cear)
+confint(lm_report_lp_cear)
+
+summary(lm_report_lp_oa)
+confint(lm_report_lp_oa)
+```
+
+
+```{r report linear models at the individual level with random effects, echo = FALSE}
+
+# from https://stats.idre.ucla.edu/r/dae/mixed-effects-logistic-regression/
+
+## models fail converge with too many variables so I removed average contribution of others in previous round, the second lag of punishment and round
+
+lm_report_hp_cear_re <- lmer(report ~ avg_comp_non_enf + neg_comp_inspected_deviation + pos_comp_inspected_deviation + diff_comp_group_comp_prev + punished_prev_round + (1|id), na.action= na.exclude, data = filter(db.ind, hp == 1 & frame.nm =="Loco" & observer == 1 & overext_observed > 0))
+
+
+
+```
+
+### 5. Exploring punishment dynamics
+
+#### 5.a. Probabiilty of report over rounds per treatment 
+
+```{r}
+
+
+db.punish.round <- DB %>% 
+  filter(round > 10) %>% 
+  mutate(punish.opportunity = ifelse(observer ==1 & overext_observed > 0, 1, 0)) %>% 
+  group_by(frame.nm, performance.nm, round) %>% 
+  summarise(prob.punish = sum(report, na.rm=T)/sum(punish.opportunity, na.rm=T)) %>% 
+  filter(!(prob.punish == 'NaN')) %>% 
+  mutate(stage.three = case_when(round == 11 ~ 'Early',
+                                 round == 12 ~ 'Early', 
+                                 round == 13 ~ 'Early',
+                                 round == 14 ~ 'Mid',
+                                 round == 15 ~ 'Mid',
+                                 round == 16 ~ 'Mid',
+                                 round == 17 ~ 'Mid',
+                                 round == 18 ~ 'Late',
+                                 round == 19 ~ 'Late',
+                                 round == 20 ~ 'Late')) %>% 
+  group_by(performance.nm, frame.nm, stage.three) %>% 
+  summarize(mean.prob.reporting = mean(prob.punish),
+            sd = sd(prob.punish),
+            n = length(prob.punish)) %>% 
+  ungroup() %>% 
+  mutate(error = qnorm(0.975)*(sd/sqrt(n)), 
+         ci.low = mean.prob.reporting - error, 
+         ci.high = mean.prob.reporting + error,
+         stage.three = factor(stage.three, levels = c("Early", "Mid", "Late"))) %>% 
+  ggplot(aes(x= stage.three, y= mean.prob.reporting, group=frame.nm)) +
+  geom_line(aes(col= frame.nm), size = 0.64) +
+  geom_point(aes(col = frame.nm), size = 1.3) +
+  geom_errorbar(aes(ymin=ci.low, ymax= ci.high, col = frame.nm), width= 0.28) +
+  scale_color_manual(values = c("red1", "royalblue3"), labels = c("pseudo OA (Hake)", "CEAR (Loco)"))+
+  scale_fill_manual(values = c("red1", "royalblue3"), labels = c("pseudo OA (Hake)", "CEAR (Loco)"))+
+  theme_bw() + 
+  xlab(expression(bold("Stage"))) +
+  ylab(expression(bold("Probability of reporting")))+
+  #scale_x_continuous(expand = c(0,0), breaks=c(seq(1,20,1)), labels = c(seq(0,9,1), seq(0,9,1)))+
+  scale_y_continuous(limits = c(-0.1, 1.1), breaks = c(seq(-0.1,1.1,0.5)), expand = c(0,0))+
+  #geom_vline(xintercept=10.5, size=5.4, col= 'white')+
+  facet_wrap(~performance.nm)+
+  theme(legend.position="bottom", legend.title=element_blank(), legend.text =    element_text(size=11),
+        panel.grid = element_blank(), plot.title = element_text(hjust = 0.5), panel.grid.major =
+          element_blank(), panel.grid.minor = element_blank())+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        #strip.background = element_blank(),
+        strip.text = element_text(size= 10, hjust = 0, vjust = 1),
+        panel.border = element_rect(colour = "dark grey"), 
+        panel.spacing.x=unit(1, "lines"), 
+        axis.title.x = element_text(margin = margin(t = 10, r = 0, b = 0, l = 0)), 
+        axis.title = element_blank(), 
+        axis.text = element_text(size = 10),
+        plot.title = element_text(size= 11, face= "bold", hjust = 0, vjust = 1))
+
+```
+
+
+
+### 6. Other model specification for individual analyses
+
+
+#### OLS with frame, association type and variables collected during the game without interactions
+
+```{r models with treatment, association type and info game, echo = FALSE}
+
+comp_ind_1 <- lm(compliance ~ cear + hp + cear_hp + avg_oth_comp_prev + punished_prev_round + punished_prev_prev_round + report_prev_round + non_enf_rounds + peer_enf_rounds, na.action= na.exclude, data = db.ind)
+
+comp_ind_2 <- lme(compliance ~ cear + peer_enf + hp, data = db.ind, random = ~1|id)
+comp_ind_3 <- lme(compliance ~ cear + peer_enf + hp + non_enf_rounds + peer_enf_rounds, data = db.ind, random = ~1|id)
+comp_ind_4 <- lme(compliance ~ cear + peer_enf + hp + cear_peer_enf + cear_hp + peer_enf_hp, data = db.ind, random = ~1|id)
+comp_ind_5 <- lme(compliance ~ cear + peer_enf + hp + non_enf_rounds + peer_enf_rounds + cear_peer_enf + cear_hp + peer_enf_hp, data = db.ind, random = ~1|id)
+comp_ind_6 <- lme(compliance ~ cear + peer_enf + hp + cear_peer_enf + cear_hp + peer_enf_hp + cear_hp_non_enf_rounds + cear_hp_peer_enf_rounds + oa_hp_non_enf_rounds + oa_hp_peer_enf_rounds + cear_lp_non_enf_rounds + cear_lp_peer_enf_rounds + oa_lp_non_enf_rounds + oa_lp_peer_enf_rounds , data = db.ind, random = ~1|id)
+
+```
+ 
