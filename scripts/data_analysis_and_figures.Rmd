@@ -1,0 +1,948 @@
+---
+title: Experience with access regime policies influences compliance and enforcement behaviors of common-pool resource users
+author: "Ignacia Rivera"
+output: 
+  html_document:
+      code_folding: hide
+      theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(gt)
+library(here)
+library(tidyverse)
+library(stargazer)
+library(knitr)
+library(nlme)
+library(lme4)
+library(sandwich)
+```
+
+# Data analysis and figures {.tabset}
+
+## **1. Data description**
+
+1) **union:** unique id for each union (not disclosed to ensure anonymity)
+ 
+2) **performance:** type of association 
+
+- High performance = 1
+- Low performance = 2 
+
+3) **framing:** framing under which the game was played
+
+- Loco = 1 
+- Hake = 2 
+
+4) **id:** unique number for subject identification built combining codes for id, union and frame
+
+5) **group_id:** unique number for group identification built combining codes for union, session and frame (note that groups were reassembled in each round for union 3 due to an implementation error)
+
+6) **round:** round of the game
+
+- From 1 to 20
+
+7) **overextraction:** number of units overharvested by a subject in a given round
+
+- From 0 to 50
+
+8) **observer:** the role assigned to that subject in that round 
+
+- Observer = 1
+- Inactive = -1
+- Inspected = 0
+- Round with no observation = NA
+
+9) **overext_observed:** overextraction performed by the subject being inspected by the subject 
+
+- From 0 to 50
+- Round with no observation = NA
+
+10) **report:** whether the subject reported a parnter's violation when having the chance
+
+- Yes = 1
+- No = 0
+- Round with no obsrevation = NA
+
+11) **punished:** whether the subject got punished after being observed violating the quota 
+
+- Yes = 1
+- No = 0
+- Round with no obsrevation = NA
+
+12) **round_profit:** profit made by the subject in a given round
+
+- From 0 to 1,500
+
+```{r importing data, echo = FALSE, message=FALSE, warning=FALSE}
+
+db <- read_csv(here::here('data/db.clean.csv'), col_names = T) %>% 
+  # group id with single group for session in union 3 to account for random matching in every round
+        mutate(
+          group.id.fixed = ifelse(union == 3 & framing == 1, "888", 
+          ifelse(union == 3 & framing == 2, "999", as.character(group_id)))) %>% 
+  # variables for analysis
+  ## individual percent of compliance in each round
+  mutate(compliance = ((50 - overextraction) * 100)/50, 
+         ## dichotomous variable for stage
+         stage = ifelse(round < 11 , 1, 2), 
+         ## character variable for stage
+         stage.nm = ifelse(round < 11 , "Nonenforced", "Peer-enforced"), 
+         ## character variable for frame
+         frame.nm = ifelse(framing == 1, 'Loco', 'Hake'), 
+         ## sorting character variable for frame
+         frame.nm = factor(frame.nm, levels = c('Hake', 'Loco')), 
+         ## character variable for performance 
+         performance.nm = ifelse(performance == 1, 'High performance', 'Low performance')) 
+
+db.print <- head(db)
+knitr::kable(db.print, col.names = gsub("[.]", " ", names(db)))
+```
+
+
+## **2. Differences in compliance** {.tabset}
+
+### 2.a. Non-parametric tests for differences in individual mean compliance
+```{r non-parametric comparisons of individual mean compliance, echo = FALSE, message=FALSE, warning=FALSE}
+
+# Aggregating observations over rounds at the individual level 
+
+db.ind.agg <- db %>% 
+  group_by(frame.nm, performance.nm, stage.nm, id) %>% 
+  summarise(compliance= mean(compliance)) %>% 
+  select(-id) 
+
+
+# Testing significant differences between frames for each association type across all rounds
+
+frame.comp <- db.ind.agg %>%
+  group_by(performance.nm) %>% 
+  summarize(p.value = wilcox.test(compliance ~ frame.nm)$p.value, 
+            stat = wilcox.test(compliance ~ frame.nm)$statistic) %>% 
+  mutate(frame.nm = 'vs',
+         stage.nm = 'All')
+
+# Testing significant differences between association type for each frame across all rounds
+
+performance.comp <- db.ind.agg %>%
+  group_by(frame.nm) %>% 
+  summarize(p.value = wilcox.test(compliance ~ performance.nm)$p.value, 
+            stat = wilcox.test(compliance ~ performance.nm)$statistic) %>% 
+  mutate(performance.nm = 'vs',
+         stage.nm = 'All')
+
+
+# Testing significant differences between stages since observations are repeated it must be a paired test
+
+stages.comp <- db.ind.agg %>% 
+  group_by(frame.nm, performance.nm) %>% 
+  summarize(p.value = wilcox.test(compliance ~ stage.nm, paired = T)$p.value,
+            stat = wilcox.test(compliance ~  stage.nm, paired = T)$statistic) %>% 
+  mutate(stage.nm = 'vs')
+
+# Unifying outputs
+
+test.comp <- rbind(frame.comp, performance.comp, stages.comp) %>% 
+  select(performance= performance.nm, frame = frame.nm, stage= stage.nm, p.value, stat) %>% 
+  mutate(corrected.p.value = p.value * 8, 
+         sign.corrected = ifelse(corrected.p.value < 0.05,"*", ""))  # Correcting for 8 hypotheses using Bonferroni
+
+wilx.comp <- gt(test.comp) %>% 
+   fmt_number(columns = vars(p.value, corrected.p.value), decimals = 3) %>% 
+  tab_header(
+    title = md("Wilcoxon rank-sum: differences in compliance levels")
+  ) %>% 
+  tab_source_note(
+    source_note = md("Significance level is ajusted using a Bonferroni correction for 8 hypotheses")
+  )%>% 
+  tab_source_note(
+    source_note = md("Tests comparing differences between stages are paired")
+  )
+
+wilx.comp
+```
+
+### 2.b. Plot of mean individual compliance per treatment and association type
+```{r bar plot mean compliance, echo = FALSE, message=FALSE, warning=FALSE}
+
+# summary statistic for bar plot on individual compliance
+db.summary <- db %>% 
+  group_by(performance.nm, frame.nm, id) %>% 
+  summarise(mean.ind.comp = mean(compliance)) %>% 
+  ungroup() %>% 
+  group_by(performance.nm, frame.nm) %>% 
+  summarise(mean = mean(mean.ind.comp),
+          sd = sd(mean.ind.comp),
+          n = length(mean.ind.comp)) %>% 
+  mutate(error = qnorm(0.975)*(sd/sqrt(n)), 
+         ci.low = mean - error, 
+         ci.high = mean + error) %>% 
+  rename(
+    Performance = performance.nm,
+    Frame = frame.nm
+  )
+
+# plotting
+bar_compliance <- ggplot(db.summary, aes(x=Performance, y= mean, fill= reorder(Frame, -mean))) + 
+  geom_bar(stat='identity', width=0.5, position=position_dodge(0.6))+
+  geom_errorbar(aes(x= Performance, ymin = ci.low, ymax= ci.high), width=0.25, position=position_dodge(0.6), size = 0.4)+
+  scale_fill_manual(values = c("royalblue3", "red1"), labels = c("CEAR (Loco)", "pseudo OA (Hake)"))+
+  xlab(expression(bold("Association Type")))+
+  ylab(expression(bold("Compliance (%)")))+
+  scale_y_continuous(expand = c(0, 0), limits=c(0,100), breaks=seq(0,100, by=20))+
+  #facet_wrap(~Performance)+
+  scale_x_discrete(labels=c("1" = "High-performance", "2" = "Low-performance"))+ 
+  theme_bw()+
+  theme(legend.position="bottom", legend.title=element_blank(), legend.text = element_text(size=10, margin = margin(t= 10, r= 0, b =0, l =0)), 
+        panel.grid = element_blank(), 
+        strip.text = element_text(size=11), 
+        axis.title = element_text(size = 12), 
+        axis.text = element_text(size = 11), 
+        axis.title.y = element_text(margin = margin(t = 0, r = 8, b = 0, l = 0)), 
+        axis.title.x = element_text(margin = margin(t = 8, r = 0, b = 0, l = 0)))
+
+bar_compliance
+#ggsave("Fig1_rev.jpg", plot = bar_compliance, device = "jpg", path = here::here("figures"), scale = 1, width = 16, height = 12, units = "cm", dpi = 300, limitsize = TRUE)
+
+```
+
+### 2.c. Comparing number of subjects that choose to comply in every round between treatments within association types
+```{r analysis for subjects that choose to comply in every round, echo = FALSE, message=FALSE, warning=FALSE}
+
+# Counting number of compliers in every round
+
+db.compliers <- db %>% 
+  group_by(frame.nm, performance.nm, id) %>% 
+  summarise(compliance= mean(compliance)) %>% 
+  mutate(complier = ifelse(compliance == 100, 1, 0)) %>% 
+  group_by(frame.nm, performance.nm) %>% 
+  summarise(n.compliers = sum(complier))
+
+# Contingency table of compliers for high performance associations (compliers vs. non-compliers in each treatment)
+
+table.compliers.hp <- rbind(
+        #cear
+        c(10,20),
+        #oa
+        c(2,28))
+
+# Running fisher exact test and correcting for two hypotheses 
+
+fisher.compliers.hp.stat <- round(fisher.test(table.compliers.hp)$estimate, 3)
+fisher.compliers.hp.p <- round(fisher.test(table.compliers.hp)$p.value, 3)
+fisher.compliers.hp.p.corrected <- round(fisher.test(table.compliers.hp)$p.value*2, 3)
+
+# Contingency table of compliers for low performance associations (compliers vs. non-compliers in each treatment)
+
+table.compliers.lp <- rbind(
+        #cear
+        c(2,28),
+        #oa
+        c(1,29))
+
+# Running fisher exact test and correcting for two hypotheses 
+
+fisher.compliers.lp.stat <- round(fisher.test(table.compliers.lp)$estimate, 3)
+fisher.compliers.lp.p <- round(fisher.test(table.compliers.lp)$p.value, 3)
+fisher.compliers.lp.p.corrected <- round(fisher.test(table.compliers.lp)$p.value*2, 3)
+
+# unifying outcomes
+
+fisher.compliers.test <- rbind(
+        c('High performance', fisher.compliers.hp.stat, fisher.compliers.hp.p, fisher.compliers.hp.p.corrected),
+        c('Low performance', fisher.compliers.lp.stat, fisher.compliers.lp.p, fisher.compliers.lp.p.corrected)) %>% 
+  as.data.frame() %>% 
+  rename('Performance' = 'V1',
+         'p.value' = 'V3', 
+         'corrected.p.value' = 'V4') %>% 
+  gt() %>% 
+  tab_header(
+    title = md("Fisher's exact test for count data: differences in number of compliers between frames")
+  ) %>% 
+  tab_source_note(
+    source_note = md("Significance level is ajusted using a Bonferroni correction for 2 hypotheses")
+  )
+
+fisher.compliers.test
+
+
+```
+
+
+### 2.d. Regressing group compliance over treatment, association type and stage
+```{r creating db at the group level, echo = FALSE, message= FALSE, warning = FALSE}
+
+db.group <- db %>% 
+  # marking punishment opportunities 
+  mutate(report.opportunity = ifelse(observer ==1 & overext_observed > 0, 1, 0)) %>% 
+  # note that we are grouping by group_id_fixed to account for the rematching between rounds that occur in sessions in union 3
+  group_by(frame.nm, performance.nm, stage.nm, round, group.id.fixed) %>%
+  # computing outcome variables at the group level
+  summarise(mean.group.com = mean(compliance),
+            num.opp.reporting = sum(report.opportunity, na.rm = T),
+            num.reports = sum(report, na.rm = T), 
+            group.prob.report = num.reports / num.opp.reporting,
+            mean.obs.overharvest = mean(overext_observed, na.rm = T)) %>%  
+  # creating dummy variables and interactions 
+  mutate(
+    cear = ifelse(frame.nm == 'Loco', 1, 0), 
+    peer.enf = ifelse(stage.nm == 'Peer-enforced', 1, 0), 
+    hp = ifelse(performance.nm == 'High performance', 1, 0), 
+    non.enf.rounds = ifelse(round < 11, round-1,0), 
+    peer.enf.rounds = ifelse(round > 10, round - 11, 0), 
+    cear.peer.enf = ifelse(frame.nm == 'Loco' 
+                           & stage.nm == 'Peer-enforced', 1, 0), 
+    cear.hp = ifelse(frame.nm == 'Loco' 
+                           & performance.nm == 'High performance', 1, 0), 
+    oa.hp = ifelse(frame.nm == 'Hake' 
+                           & performance.nm == 'High performance', 1, 0),
+    cear.lp = ifelse(frame.nm == 'Loco' 
+                           & performance.nm == 'Low performance', 1, 0),
+    oa.lp = ifelse(frame.nm == 'Hake' 
+                           & performance.nm == 'Low performance', 1, 0),
+    peer.enf.hp = ifelse(stage.nm == 'Peer-enforced' &
+                                  performance.nm == 'High performance', 1, 0), 
+    cear.hp.non.enf.rounds = ifelse(frame.nm == 'Loco'&
+                                    performance.nm == 'High performance'& 
+                                    round < 11, 
+                                    round - 1, 0), 
+    cear.hp.peer.enf.rounds = ifelse(frame.nm == 'Loco' &
+                                    performance.nm == 'High performance'& 
+                                    round > 10,
+                                    round - 11, 0), 
+    oa.hp.non.enf.rounds = ifelse(frame.nm == 'Hake'&
+                                    performance.nm == 'High performance'& 
+                                    round < 11, 
+                                    round - 1, 0),
+    oa.hp.peer.enf.rounds = ifelse(frame.nm == 'Hake'&
+                                    performance.nm == 'High performance'& 
+                                    round > 10, 
+                                    round - 11, 0),
+    cear.lp.non.enf.rounds = ifelse(frame.nm == 'Loco'&
+                                    performance.nm == 'Low performance'& 
+                                    round < 11, 
+                                    round - 1, 0), 
+    cear.lp.peer.enf.rounds = ifelse(frame.nm == 'Loco'&
+                                    performance.nm == 'Low performance'& 
+                                    round > 10, 
+                                    round - 11, 0), 
+    oa.lp.non.enf.rounds = ifelse(frame.nm == 'Hake'&
+                                    performance.nm == 'Low performance'& 
+                                    round < 11, 
+                                    round - 1, 0),
+    oa.lp.peer.enf.rounds = ifelse(frame.nm == 'Hake'&
+                                    performance.nm == 'Low performance'& 
+                                    round > 10, 
+                                    round - 11, 0), 
+    # creating weights to run weighted regressions means for groups 999 and 888 come from 10 subjects while means for other groups come from only 5 subjects
+    weights = ifelse(group.id.fixed == '999' | group.id.fixed == '888', 1, 0.5))
+```
+
+```{r running linear models for group compliance, echo = FALSE, results = 'asis', warnings = FALSE, messages = FALSE}
+
+# running the weighted OLS of group compliance in each round
+
+comp.grp.1 <- lm(mean.group.com ~ cear, data = db.group, weights = weights)
+comp.grp.2 <- lm(mean.group.com ~ cear + peer.enf + hp, data = db.group, weights = weights)
+comp.grp.3 <- lm(mean.group.com ~ cear + peer.enf + hp + non.enf.rounds + peer.enf.rounds, data = db.group, weights = weights)
+comp.grp.4 <- lm(mean.group.com ~ cear + peer.enf + hp + cear.peer.enf + cear.hp + peer.enf.hp, data = db.group, weights = weights)
+comp.grp.5 <- lm(mean.group.com ~ cear + peer.enf + hp + non.enf.rounds + peer.enf.rounds + cear.peer.enf + cear.hp + peer.enf.hp, data = db.group, weights = weights)
+comp.grp.6 <- lm(mean.group.com ~ cear + peer.enf + hp + cear.peer.enf + cear.hp + peer.enf.hp +  cear.hp.non.enf.rounds + cear.hp.peer.enf.rounds + oa.hp.non.enf.rounds + oa.hp.peer.enf.rounds + cear.lp.non.enf.rounds + cear.lp.peer.enf.rounds + oa.lp.non.enf.rounds + oa.lp.peer.enf.rounds, data = db.group, weights = weights)
+
+# adjusting standard errors to robust
+
+comp.grp.1.cov <- vcovHC(comp.grp.1, type = "HC1")
+comp.grp.1.se <- sqrt(diag(comp.grp.1.cov))
+
+comp.grp.2.cov <- vcovHC(comp.grp.2, type = "HC1")
+comp.grp.2.se <- sqrt(diag(comp.grp.2.cov))
+
+comp.grp.3.cov <- vcovHC(comp.grp.3, type = "HC1")
+comp.grp.3.se <- sqrt(diag(comp.grp.3.cov))
+
+comp.grp.4.cov <- vcovHC(comp.grp.4, type = "HC1")
+comp.grp.4.se <- sqrt(diag(comp.grp.4.cov))
+
+comp.grp.5.cov <- vcovHC(comp.grp.5, type = "HC1")
+comp.grp.5.se <- sqrt(diag(comp.grp.5.cov))
+
+comp.grp.6.cov <- vcovHC(comp.grp.6, type = "HC1")
+comp.grp.6.se <- sqrt(diag(comp.grp.6.cov))
+
+# computing AIC scores
+
+comp.grp.1.aic <- round(AIC(comp.grp.1), 2)
+comp.grp.2.aic <- round(AIC(comp.grp.2), 2)
+comp.grp.3.aic <- round(AIC(comp.grp.3), 2)
+comp.grp.4.aic <- round(AIC(comp.grp.4), 2)
+comp.grp.5.aic <- round(AIC(comp.grp.5), 2)
+comp.grp.6.aic <- round(AIC(comp.grp.6), 2)
+
+# Printing results 
+
+stargazer(comp.grp.1, comp.grp.2, comp.grp.3, comp.grp.4, comp.grp.5, comp.grp.6, type = 'html', digits = 2, se = list(comp.grp.1.se, comp.grp.2.se, comp.grp.3.se, comp.grp.4.se, comp.grp.5.se, comp.grp.6.se), notes = c("Weights are assigned based on the number of individuals in each group", "Robust standard errors"), covariate.labels = c("CEAR", "Peer-enforced stage", "HP", "Non-enforced rounds", "Peer-enforced rounds", "CEAR x Peer-enf. stage", "CEAR x HP", "Peer-enf. stage x HP", "CEAR × HP × Non-enf. rounds", "CEAR × HP × Peer-enf. rounds", "Pseudo-OA × HP × Non-enf. rounds", "Pseudo-OA × HP × Peer-enf. rounds", "CEAR × LP × Non-enf. rounds", "CEAR × LP × Peer-enf. rounds", "Pseudo-OA × LP × Non-enf. rounds", "Pseudo-OA × LP × Peer-enf. rounds", "Constant"), dep.var.labels = "Group percent of compliance", omit.stat = "f", add.lines = list(c("AIC", comp.grp.1.aic, comp.grp.2.aic, comp.grp.3.aic, comp.grp.4.aic, comp.grp.5.aic, comp.grp.6.aic)))
+
+```
+
+
+
+## **3. Differences in peer-enforcement** {.tabset}
+
+### 3.a. Nonparametric test for differences in individual report probability
+```{r non-parametric comparisons of individual report probability, echo = FALSE, message=FALSE, warning=FALSE}
+
+# computing probability of report aggregated over rounds at the individual level
+
+db.report.ind <- db %>% 
+  filter(round > 10) %>% 
+  # subjects only had the opportunity to report if they were assigned observers and the inspected subject overharvested
+  mutate(report.opportunity = ifelse(observer ==1 & overext_observed > 0, 1, 0)) %>% 
+  group_by(frame.nm, performance.nm, id) %>% 
+  summarise(prob.report = sum(report, na.rm=T)/sum(report.opportunity, na.rm=T)) %>% 
+  select(-id) %>% 
+  filter(!(prob.report == 'NaN'))
+
+n.report <- db.report.ind %>% 
+  group_by(frame.nm, performance.nm) %>% 
+  summarise(n = length(prob.report))
+
+# Testing significant differences in individual report probability between frame and performance 
+
+test.report.frame <- db.report.ind %>%
+  group_by(performance.nm) %>% 
+  summarize(p.value = wilcox.test(prob.report ~ as.factor(frame.nm))$p.value, 
+            statistic = wilcox.test(prob.report ~ as.factor(frame.nm))$statistic) %>% 
+  mutate(frame.nm = 'vs')
+
+test.report.performance <- db.report.ind %>%
+  group_by(frame.nm) %>% 
+  summarize(p.value = wilcox.test(prob.report ~ as.factor(performance.nm))$p.value, 
+            statistic = wilcox.test(prob.report ~ as.factor(performance.nm))$statistic) %>% 
+  mutate(performance.nm = 'vs') 
+
+
+test.report<- rbind(test.report.frame, test.report.performance) %>% 
+  mutate(corrected.p.value = p.value * 4, 
+         sign.corrected = ifelse(corrected.p.value < 0.05,"*", "")) %>% 
+  select(performance.nm, frame.nm, statistic, p.value, corrected.p.value)
+
+wilx.report <- gt(test.report) %>% 
+   fmt_number(columns = vars(p.value, corrected.p.value), decimals = 3) %>% 
+  tab_header(
+    title = md("Wilcoxon rank-sum test: differences in individual probability of reporting")
+  ) %>% 
+  tab_source_note(
+    source_note = md("Significance level is ajusted using a Bonferroni correction for 4 hypotheses")
+  )
+
+wilx.report
+```
+
+### 3.b. Plot of mean individual probability of reporting per treatment and association type
+```{r bar plot probability of reporting, echo = FALSE, message=FALSE, warning=FALSE}
+
+# summary statistic for bar plot on individual probability of reporting
+db.report.plot<- db.report.ind %>% 
+  group_by(frame.nm, performance.nm) %>% 
+  summarise(mean = mean(prob.report),
+          sd = sd(prob.report),
+          n = length(prob.report)) %>% 
+  mutate(error = qnorm(0.975)*(sd/sqrt(n)), 
+         ci.low = mean - error, 
+         ci.high = mean + error) %>% 
+  rename(
+    Performance = performance.nm,
+    Frame = frame.nm
+  )
+
+# plotting 
+plot.report <- ggplot(db.report.plot, aes(x= Performance, y= mean, fill= reorder(Frame, -mean))) + 
+  geom_bar(stat='identity', width=0.5, position=position_dodge(0.6))+
+  geom_errorbar(aes(x=as.factor(Performance), ymin = ci.low, ymax= ci.high), width=0.25, position=position_dodge(0.6), size = 0.4)+
+  scale_fill_manual(values = c("royalblue3", "red1"), labels = c("CEAR (Loco)", "pseudo OA (Hake)"))+
+  xlab(expression(bold("Performance")))+
+  ylab(expression(bold("Punishment probability")))+
+  scale_y_continuous(expand = c(0, 0), limits=c(0,1), breaks=seq(0,1, by=0.2))+
+  #facet_wrap(~Performance)+
+  #scale_x_discrete(labels=c("1" = "High-performance", "2" = "Low-performance"))+ 
+  theme_bw()+
+  theme(legend.position="bottom", legend.title=element_blank(), legend.text = element_text(size=10, margin = margin(t= 10, r= 0, b =0, l =0)), 
+        panel.grid = element_blank(), 
+        strip.text = element_text(size=11), 
+        axis.title = element_text(size = 12), 
+        axis.text = element_text(size = 11), 
+        axis.title.y = element_text(margin = margin(t = 0, r = 8, b = 0, l = 0)), 
+        axis.title.x = element_text(margin = margin(t = 8, r = 0, b = 0, l = 0)))
+
+plot.report
+#ggsave("Fig2.pdf", plot = plot_report, device = "pdf", path = here::here("figures"), scale = 1, width = 16, height = 12, units = "cm", dpi = 300, limitsize = TRUE)
+
+
+```
+
+### 3.d. Regressing group probability of reporting over treatment, association type and stage 
+```{r running linear models for group probability of reporting, echo = FALSE, results = 'asis', warnings = FALSE, messages = FALSE}
+
+# running the weighted OLS of group probability of reportingin each round 
+
+report.grp.1 <- lm(group.prob.report ~ cear, data = subset(db.group, db.group$round > 10), weights = weights)
+
+report.grp.2 <- lm(group.prob.report ~ cear + round + mean.obs.overharvest, data = subset(db.group, db.group$round > 10), weights = weights)
+
+report.grp.3 <- lm(group.prob.report ~ cear + hp, data = subset(db.group, db.group$round > 10), weights = weights)
+
+report.grp.4 <- lm(group.prob.report ~ cear + round + mean.obs.overharvest + hp, data = subset(db.group, db.group$round > 10), weights = weights)
+
+report.grp.5 <- lm(group.prob.report ~ cear + hp + cear.hp, data = subset(db.group, db.group$round > 10), weights = weights)
+
+report.grp.6 <- lm(group.prob.report ~ cear + round + mean.obs.overharvest + hp + cear.hp, data = subset(db.group, db.group$round > 10), weights = weights)
+
+report.grp.7 <- lm(group.prob.report ~ oa.hp + cear.lp + oa.lp, data = subset(db.group, db.group$round > 10), weights = weights)
+
+report.grp.8 <- lm(group.prob.report ~ + round + mean.obs.overharvest + oa.hp + cear.lp + oa.lp, data = subset(db.group, db.group$round > 10), weights = weights)
+
+# adjusting standard errors to robust
+
+report.grp.1.cov <- vcovHC(report.grp.1, type = "HC1")
+report.grp.1.se <- sqrt(diag(report.grp.1.cov))
+
+report.grp.2.cov <- vcovHC(report.grp.2, type = "HC1")
+report.grp.2.se <- sqrt(diag(report.grp.2.cov))
+
+report.grp.3.cov <- vcovHC(report.grp.3, type = "HC1")
+report.grp.3.se <- sqrt(diag(report.grp.3.cov))
+
+report.grp.4.cov <- vcovHC(report.grp.4, type = "HC1")
+report.grp.4.se <- sqrt(diag(report.grp.4.cov))
+
+report.grp.5.cov <- vcovHC(report.grp.5, type = "HC1")
+report.grp.5.se <- sqrt(diag(report.grp.5.cov))
+
+report.grp.6.cov <- vcovHC(report.grp.6, type = "HC1")
+report.grp.6.se <- sqrt(diag(report.grp.6.cov))
+
+report.grp.7.cov <- vcovHC(report.grp.7, type = "HC1")
+report.grp.7.se <- sqrt(diag(report.grp.7.cov))
+
+report.grp.8.cov <- vcovHC(report.grp.8, type = "HC1")
+report.grp.8.se <- sqrt(diag(report.grp.8.cov))
+
+
+# printing results 
+
+stargazer(report.grp.1, report.grp.2, report.grp.3, report.grp.4, report.grp.5, report.grp.6, report.grp.7, report.grp.8, type = 'html', digits = 2, se = list(report.grp.1.se, report.grp.2.se, report.grp.3.se, report.grp.4.se, report.grp.5.se, report.grp.6.se, report.grp.7.se, report.grp.8.se), notes = c("Weights are assigned based on the number of individuals in each group", "Robust standard errors"))
+```
+
+
+
+## **4. The effect of peer-enforcement on compliance** {.tabset}
+
+### 4.a. Nonparametric tests for evolution of compliance
+```{r non-parametric comparisons of first and last rounds per treatment, echo = FALSE, message=FALSE, warning=FALSE}
+
+# Filtering only first and last round of non-enforced stage
+
+db.evol.nonenf <- db %>% 
+  filter(round == 1|round == 10)
+
+# Testing significant differences between first and last round for each frame performance combination in non-enforced stage
+
+evol.nonenf <- db.evol.nonenf %>%
+  group_by(performance.nm, frame.nm) %>% 
+  summarize(p.value = wilcox.test(compliance ~ as.factor(round), paired = T)$p.value,
+            statistic = wilcox.test(compliance ~ as.factor(round), paired = T)$statistic) %>% 
+  mutate(stage = "nonenforced")
+
+# filtering only first and last round of peer-enforced stage
+
+db.evol.peerenf <- db %>% 
+  filter(round == 11|round == 20)
+
+# testing significant differences between first and last round for each frame performance combination in peer-enforced stage
+
+evol.peerenf <- db.evol.peerenf %>%
+  group_by(performance.nm, frame.nm) %>% 
+  summarize(p.value = wilcox.test(compliance ~ as.factor(round), paired = T)$p.value,
+            statistic = wilcox.test(compliance ~ as.factor(round), paired = T)$statistic)%>% 
+  mutate(stage = "peer-enforced")
+
+# unifying outputs
+
+test.evol <- rbind(evol.nonenf, evol.peerenf) %>% 
+  select(performance= performance.nm, frame = frame.nm, stage, statistic, p.value) %>% 
+  mutate(corrected.p.value = p.value*8, 
+         sign.corrected = ifelse(corrected.p.value < 0.05,"**", "")) # Correcting for 8 hypotheses using Bonferroni
+
+wilx.evol.com <- gt(test.evol) %>% 
+   fmt_number(columns = vars(p.value, corrected.p.value), decimals = 3) %>% 
+ tab_header(
+    title = md("Wilcoxon rank-sum paired test: differences in compliance between the first and last round in each stage")
+  ) %>% 
+  tab_source_note(
+    source_note = md("Significance level is ajusted using a Bonferroni correction for 8 hypotheses")
+  )
+
+wilx.evol.com
+
+```
+
+### 4.b. Plot of evolution of individual compliance
+```{r plot evolution of individual compliance by stage, echo = FALSE, message= FALSE, warning=FALSE}
+
+# computing summary statistics for plot on individual compliance per stage
+
+db.evol.plot <- db %>% 
+  mutate(stage.three = case_when(round == 1 ~ 'Early',
+                                 round == 2 ~ 'Early', 
+                                 round == 3 ~ 'Early',
+                                 round == 4 ~ 'Mid',
+                                 round == 5 ~ 'Mid',
+                                 round == 6 ~ 'Mid',
+                                 round == 7 ~ 'Mid',
+                                 round == 8 ~ 'Late',
+                                 round == 9 ~ 'Late',
+                                 round == 10 ~ 'Late',
+                                 round == 11 ~ 'Early',
+                                 round == 12 ~ 'Early', 
+                                 round == 13 ~ 'Early',
+                                 round == 14 ~ 'Mid',
+                                 round == 15 ~ 'Mid',
+                                 round == 16 ~ 'Mid',
+                                 round == 17 ~ 'Mid',
+                                 round == 18 ~ 'Late',
+                                 round == 19 ~ 'Late',
+                                 round == 20 ~ 'Late')) %>% 
+  group_by(performance.nm, frame.nm, stage.nm, stage.three) %>%
+  summarize(mean.compliance = mean(compliance),
+            sd = sd(compliance),
+            n = length(compliance)) %>% 
+  ungroup() %>% 
+  mutate(error = qnorm(0.975)*(sd/sqrt(n)), 
+         ci.low = mean.compliance - error, 
+         ci.high = mean.compliance + error,
+         stage.three = factor(stage.three, levels = c("Early", "Mid", "Late")))
+
+plot.high <- ggplot(subset(db.evol.plot, performance.nm == "High performance"), aes(x= stage.three, y= mean.compliance, group=frame.nm)) +
+  geom_line(aes(col= frame.nm), size = 0.64) +
+  geom_point(aes(col = frame.nm), size = 1.3) +
+  geom_errorbar(aes(ymin=ci.low, ymax= ci.high, col = frame.nm), width= 0.28) +
+  scale_color_manual(values = c("red1", "royalblue3"), labels = c("pseudo OA (Hake)", "CEAR (Loco)"))+
+  scale_fill_manual(values = c("red1", "royalblue3"), labels = c("pseudo OA (Hake)", "CEAR (Loco)"))+
+  theme_bw() + 
+  ggtitle('High performance associations')+
+  xlab(expression(bold("Stage"))) +
+  ylab(expression(bold("Compliance (%)")))+
+  #scale_x_continuous(expand = c(0,0), breaks=c(seq(1,20,1)), labels = c(seq(0,9,1), seq(0,9,1)))+
+  scale_y_continuous(limits = c(0,100), breaks = c(seq(0,100,20)), expand = c(0,0))+
+  #geom_vline(xintercept=10.5, size=5.4, col= 'white')+
+  facet_wrap(~stage.nm)+
+  theme(legend.position="bottom", legend.title=element_blank(), legend.text =    element_text(size=11), panel.grid = element_blank(), plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        #strip.background = element_blank(),
+        strip.text = element_text(size= 10, hjust = 0, vjust = 1),
+        panel.border = element_rect(colour = "dark grey"), 
+        panel.spacing.x=unit(1, "lines"), 
+        axis.title.x = element_text(margin = margin(t = 10, r = 0, b = 0, l = 0)), 
+        #axis.title = element_text(size = 11), 
+        axis.title = element_blank(),
+        axis.text = element_text(size = 10),
+        plot.title = element_text(size= 11, face= "bold", hjust = 0, vjust = 1))
+
+plot.low <- ggplot(subset(db.evol.plot, performance.nm == "Low performance"), aes(x= stage.three, y= mean.compliance, group=frame.nm)) +
+  geom_line(aes(col= frame.nm), size = 0.64) +
+  geom_point(aes(col = frame.nm), size = 1.3) +
+  geom_errorbar(aes(ymin=ci.low, ymax= ci.high, col = frame.nm), width= 0.28) +
+  scale_color_manual(values = c("red1", "royalblue3"), labels = c("pseudo OA (Hake)", "CEAR (Loco)"))+
+  scale_fill_manual(values = c("red1", "royalblue3"), labels = c("pseudo OA (Hake)", "CEAR (Loco)"))+
+  theme_bw() + 
+  ggtitle('High performance associations')+
+  xlab(expression(bold("Stage"))) +
+  ylab(expression(bold("Compliance (%)")))+
+  #scale_x_continuous(expand = c(0,0), breaks=c(seq(1,20,1)), labels = c(seq(0,9,1), seq(0,9,1)))+
+  scale_y_continuous(limits = c(0,100), breaks = c(seq(0,100,20)), expand = c(0,0))+
+  #geom_vline(xintercept=10.5, size=5.4, col= 'white')+
+  facet_wrap(~stage.nm)+
+  theme(legend.position="bottom", legend.title=element_blank(), legend.text =    element_text(size=11),
+        panel.grid = element_blank(), plot.title = element_text(hjust = 0.5), panel.grid.major =
+          element_blank(), panel.grid.minor = element_blank())+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        #strip.background = element_blank(),
+        strip.text = element_text(size= 10, hjust = 0, vjust = 1),
+        panel.border = element_rect(colour = "dark grey"), 
+        panel.spacing.x=unit(1, "lines"), 
+        axis.title.x = element_text(margin = margin(t = 10, r = 0, b = 0, l = 0)), 
+        axis.title = element_blank(), 
+        axis.text = element_text(size = 10),
+        plot.title = element_text(size= 11, face= "bold", hjust = 0, vjust = 1))
+
+evol.compliance <- gridExtra::grid.arrange(plot.high, plot.low, ncol = 2)
+
+#ggsave("Fig3.pdf", plot = evol.compliance, device = "pdf", path = here::here("figures"), scale = 1, width = 18, height = 12, units = "cm", dpi = 300, limitsize = TRUE)
+
+```
+### 4.c. Plot of evolution of probability of reporting in each round
+```{r plot of evolution of probability of reporting in each round, echo = FALSE, warning= FALSE, message = FALSE}
+
+# computing summary statistics for plot on round probability of reporting per stage
+
+db.report.round <- db %>% 
+  filter(round > 10) %>% 
+  mutate(report.opportunity = ifelse(observer ==1 & overext_observed > 0, 1, 0)) %>% 
+  # grouping by round
+  group_by(frame.nm, performance.nm, round) %>% 
+  summarise(prob.report = sum(report, na.rm=T)/sum(report.opportunity, na.rm=T)) %>% 
+  filter(!(prob.report == 'NaN')) %>% 
+  mutate(stage.three = case_when(round == 11 ~ 'Early',
+                                 round == 12 ~ 'Early', 
+                                 round == 13 ~ 'Early',
+                                 round == 14 ~ 'Mid',
+                                 round == 15 ~ 'Mid',
+                                 round == 16 ~ 'Mid',
+                                 round == 17 ~ 'Mid',
+                                 round == 18 ~ 'Late',
+                                 round == 19 ~ 'Late',
+                                 round == 20 ~ 'Late')) %>% 
+  group_by(performance.nm, frame.nm, stage.three) %>% 
+  summarize(mean.prob.reporting = mean(prob.report),
+            sd = sd(prob.report),
+            n = length(prob.report)) %>% 
+  ungroup() %>% 
+  mutate(error = qnorm(0.975)*(sd/sqrt(n)), 
+         ci.low = mean.prob.reporting - error, 
+         ci.high = mean.prob.reporting + error,
+         stage.three = factor(stage.three, levels = c("Early", "Mid", "Late"))) %>% 
+  ggplot(aes(x= stage.three, y= mean.prob.reporting, group=frame.nm)) +
+  geom_line(aes(col= frame.nm), size = 0.64) +
+  geom_point(aes(col = frame.nm), size = 1.3) +
+  geom_errorbar(aes(ymin=ci.low, ymax= ci.high, col = frame.nm), width= 0.28) +
+  scale_color_manual(values = c("red1", "royalblue3"), labels = c("pseudo OA (Hake)", "CEAR (Loco)"))+
+  scale_fill_manual(values = c("red1", "royalblue3"), labels = c("pseudo OA (Hake)", "CEAR (Loco)"))+
+  theme_bw() + 
+  xlab(expression(bold("Stage"))) +
+  ylab(expression(bold("Probability of reporting")))+
+  #scale_x_continuous(expand = c(0,0), breaks=c(seq(1,20,1)), labels = c(seq(0,9,1), seq(0,9,1)))+
+  scale_y_continuous(limits = c(-0.1, 1.1), breaks = c(seq(-0.1,1.1,0.5)), expand = c(0,0))+
+  #geom_vline(xintercept=10.5, size=5.4, col= 'white')+
+  facet_wrap(~performance.nm)+
+  theme(legend.position="bottom", legend.title=element_blank(), legend.text =    element_text(size=11),
+        panel.grid = element_blank(), plot.title = element_text(hjust = 0.5), panel.grid.major =
+          element_blank(), panel.grid.minor = element_blank())+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        #strip.background = element_blank(),
+        strip.text = element_text(size= 10, hjust = 0, vjust = 1),
+        panel.border = element_rect(colour = "dark grey"), 
+        panel.spacing.x=unit(1, "lines"), 
+        axis.title.x = element_text(margin = margin(t = 10, r = 0, b = 0, l = 0)), 
+        axis.title = element_blank(), 
+        axis.text = element_text(size = 10),
+        plot.title = element_text(size= 11, face= "bold", hjust = 0, vjust = 1))
+
+db.report.round 
+```
+
+
+## **5. Individual determinants of compliance and peer-neforcement** {.tabset}
+
+```{r creating db at the individual level, echo = FALSE, message= FALSE, warning = FALSE}
+
+db.ind <- db %>% 
+   # creating dummies and interactions for frame, associations and stage 
+   mutate(
+    cear = ifelse(frame.nm == 'Loco', 1, 0), 
+    peer_enf = ifelse(stage.nm == 'Peer-enforced', 1, 0), 
+    hp = ifelse(performance.nm == 'High performance', 1, 0), 
+    non.enf.rounds = ifelse(round < 11, round-1,0), 
+    peer.enf.rounds = ifelse(round > 10, round - 11, 0), 
+    cear.peer.enf = ifelse(frame.nm == 'Loco' 
+                           & stage.nm == 'Peer-enforced', 1, 0), 
+    cear.hp = ifelse(frame.nm == 'Loco' 
+                     & performance.nm == 'High performance', 1, 0), 
+    peer.enf.hp = ifelse(stage.nm == 'Peer-enforced' &
+                           performance.nm == 'High performance', 1, 0), 
+    cear.hp.non.enf.rounds = ifelse(frame.nm == 'Loco'&
+                                      performance.nm == 'High performance'& 
+                                      round < 11, 
+                                    round - 1, 0), 
+    cear.hp.peer.enf.rounds = ifelse(frame.nm == 'Loco' &
+                                       performance.nm == 'High performance'& 
+                                       round > 10,
+                                     round - 11, 0), 
+    oa.hp.non.enf.rounds = ifelse(frame.nm == 'Hake'&
+                                    performance.nm == 'High performance'& 
+                                    round < 11, 
+                                  round - 1, 0),
+    oa.hp.peer.enf.rounds = ifelse(frame.nm == 'Hake'&
+                                     performance.nm == 'High performance'& 
+                                     round > 10, 
+                                   round - 11, 0),
+    cear.lp.non.enf.rounds = ifelse(frame.nm == 'Loco'&
+                                      performance.nm == 'Low performance'& 
+                                      round < 11, 
+                                    round - 1, 0), 
+    cear.lp.peer.enf.rounds = ifelse(frame.nm == 'Loco'&
+                                       performance.nm == 'Low performance'& 
+                                       round > 10, 
+                                     round - 11, 0), 
+    oa.lp.non.enf.rounds = ifelse(frame.nm == 'Hake'&
+                                    performance.nm == 'Low performance'& 
+                                    round < 11, 
+                                  round - 1, 0),
+    oa.lp.peer.enf.rounds = ifelse(frame.nm == 'Hake'&
+                                   performance.nm == 'Low performance'& 
+                                   round > 10, 
+                                  round - 11, 0)) %>% 
+  # creating variables in Cassari and Luni, 2009
+  ## avg compliance in non-enf stage per individual
+  group_by(id) %>%
+  mutate(avg.comp.non.enf = mean(compliance[round<11])) %>% 
+  ungroup() %>% 
+  ## avg compliance and overharvest in the group in round t
+  ### grouping by group_id in each round
+  group_by(group_id, round) %>% 
+  mutate(sum.comp = sum(compliance),
+         avg.group.comp = sum.comp/5) %>% 
+  ungroup() %>% 
+  ## avg compliance of other group members in round t
+  mutate(avg.oth.comp = (sum.comp - compliance)/4) %>% 
+  group_by(id) %>% 
+  ## avg compliance of other group members in previous round 
+  mutate(avg.oth.comp.prev = dplyr::lag(avg.oth.comp, n=1),
+         ## average group compliance in the previous round
+         avg.group.comp.prev = dplyr::lag(avg.group.comp, n=1),
+         ## subject was punished in previous round
+         punished.prev.round = ifelse(is.na(dplyr::lag(punished)), 0, dplyr::lag(punished)),
+         ## subject was punished in the second previous round
+         punished.prev.prev.round = dplyr::lag(punished.prev.round),
+         ## the subject choose to report in the previous round
+         report.prev.round = ifelse(is.na(dplyr::lag(report)), 0, dplyr::lag(report))) %>% 
+  ungroup() %>% 
+  mutate(## observed compliance 
+    obs.comp = ifelse(is.na(overext_observed), 0,((50 - overext_observed) * 100)/50),
+    ## deviation of inspected relative to average group compliance in prev round
+    comp.inspected.deviation = obs.comp - avg.group.comp.prev,
+    ## positive deviation of inspected relative to average group compliance in prev round
+    pos.comp.inspected.deviation = ifelse(comp.inspected.deviation > 0 , comp.inspected.deviation, 0),
+    ## negative deviation of inspected relative to average group compliance in prev round
+    neg.comp.inspected.deviation = ifelse(comp.inspected.deviation < 0 , abs(comp.inspected.deviation), 0),
+    # subject’s compliance minus average group’s compliance in the previous round
+    diff.comp.group.comp.prev = compliance - avg.oth.comp.prev) 
+
+```
+
+### 5.a. Regressing individual compliance in peer-enforced stage on game variables (OLS)
+```{r running linear models for determinants of individual compliance, echo = FALSE, results = 'asis', warnings = FALSE, messages = FALSE}
+
+# Running OLS for determinants of individual compliance in peer-enforced stage following Cassari and Luini, 2009
+
+comp.ind.hp.cear <- lm(compliance ~ avg.comp.non.enf + avg.oth.comp.prev +  punished.prev.round + punished.prev.prev.round + report.prev.round + peer.enf.rounds, na.action= na.exclude, data = filter(db.ind, hp == 1 & frame.nm =="Loco" & stage.nm == 'Peer-enforced'))
+
+comp.ind.hp.oa <- lm(compliance ~ avg.comp.non.enf + avg.oth.comp.prev +  punished.prev.round + punished.prev.prev.round + report.prev.round + peer.enf.rounds, na.action= na.exclude, data = filter(db.ind, hp == 1 & frame.nm =="Hake" & stage.nm == 'Peer-enforced'))
+
+comp.ind.lp.cear <- lm(compliance ~ avg.comp.non.enf + avg.oth.comp.prev +  punished.prev.round + punished.prev.prev.round + report.prev.round + peer.enf.rounds, na.action= na.exclude, data = filter(db.ind, hp == 0 & frame.nm =="Loco" & stage.nm == 'Peer-enforced'))
+
+comp.ind.lp.oa <- lm(compliance ~ avg.comp.non.enf + avg.oth.comp.prev +  punished.prev.round + punished.prev.prev.round + report.prev.round + peer.enf.rounds, na.action= na.exclude, data = filter(db.ind, hp == 0 & frame.nm =="Hake" & stage.nm == 'Peer-enforced'))
+
+# adjusting standard errors to robust
+
+comp.ind.hp.cear.cov <- vcovHC(comp.ind.hp.cear, type = "HC1")
+comp.ind.hp.cear.se <- sqrt(diag(comp.ind.hp.cear.cov))
+
+comp.ind.hp.oa.cov <- vcovHC(comp.ind.hp.oa, type = "HC1")
+comp.ind.hp.oa.se <- sqrt(diag(comp.ind.hp.oa.cov))
+
+comp.ind.lp.cear.cov <- vcovHC(comp.ind.lp.cear, type = "HC1")
+comp.ind.lp.cear.se <- sqrt(diag(comp.ind.lp.cear.cov))
+
+comp.ind.lp.oa.cov <- vcovHC(comp.ind.lp.oa, type = "HC1")
+comp.ind.lp.oa.se <- sqrt(diag(comp.ind.lp.oa.cov))
+
+
+# Printing results 
+
+stargazer(comp.ind.hp.cear, comp.ind.hp.oa, comp.ind.lp.cear, comp.ind.lp.oa, type = 'html', digits = 2, se = list(comp.ind.hp.cear.se, comp.ind.hp.oa.se, comp.ind.lp.cear.se, comp.ind.lp.oa.se), notes = "Robust standard errors")
+
+```
+
+### 5.b. Regressing individual compliance in peer-enforced stage on game variables (OLS with individual random effects)
+```{r running linear models for determinants of individual compliance with individual random effects, echo = FALSE, results = 'asis', warnings = FALSE, messages = FALSE}
+
+# Running OLS for determinants of individual compliance in peer-enforced stage following Cassari and Luini, 2009 with individual random effects
+
+comp.ind.hp.cear.re <- lme(compliance ~ avg.comp.non.enf + avg.oth.comp.prev +  punished.prev.round + punished.prev.prev.round + report.prev.round + peer.enf.rounds, random=~1|id, na.action= na.exclude, data = filter(db.ind, hp == 1 & frame.nm =="Loco" & stage.nm == 'Peer-enforced'))
+
+comp.ind.hp.oa.re <- lme(compliance ~ avg.comp.non.enf + avg.oth.comp.prev +  punished.prev.round + punished.prev.prev.round + report.prev.round + peer.enf.rounds, random=~1|id, na.action= na.exclude, data = filter(db.ind, hp == 1 & frame.nm =="Hake" & stage.nm == 'Peer-enforced'))
+
+comp.ind.lp.cear.re <- lme(compliance ~ avg.comp.non.enf + avg.oth.comp.prev +  punished.prev.round + punished.prev.prev.round + report.prev.round + peer.enf.rounds, random=~1|id, na.action= na.exclude, data = filter(db.ind, hp == 0 & frame.nm =="Loco" & stage.nm == 'Peer-enforced'))
+
+comp.ind.lp.oa.re <- lme(compliance ~ avg.comp.non.enf + avg.oth.comp.prev +  punished.prev.round + punished.prev.prev.round + report.prev.round + peer.enf.rounds, random=~1|id, na.action= na.exclude, data = filter(db.ind, hp == 0 & frame.nm =="Hake" & stage.nm == 'Peer-enforced'))
+
+
+# Printing results 
+
+stargazer(comp.ind.hp.cear.re, comp.ind.hp.oa.re, comp.ind.lp.cear.re, comp.ind.lp.oa.re, type = 'html', digits = 2)
+
+```
+
+### 5.c. Regressing individual reports on game variables (Probit)
+```{r running linear models for determinants of individual reports, echo = FALSE, results = 'asis', warnings = FALSE, messages = FALSE}
+
+# Running OLS for determinants of individual reports following Cassari and Luini, 2009
+
+report.ind.hp.cear <- glm(report ~ avg.comp.non.enf + neg.comp.inspected.deviation + pos.comp.inspected.deviation + diff.comp.group.comp.prev + avg.oth.comp.prev + punished.prev.round + punished.prev.prev.round + peer.enf.rounds, na.action= na.exclude, data = filter(db.ind, hp == 1 & frame.nm =="Loco" & observer == 1 & overext_observed > 0), family = binomial(link = "probit"))
+
+report.ind.hp.oa <- glm(report ~ avg.comp.non.enf + neg.comp.inspected.deviation + pos.comp.inspected.deviation + diff.comp.group.comp.prev + avg.oth.comp.prev + punished.prev.round + punished.prev.prev.round + peer.enf.rounds, na.action= na.exclude, data = filter(db.ind, hp == 1 & frame.nm =="Hake" & observer == 1 & overext_observed > 0), family = binomial(link = "probit"))
+
+report.ind.lp.cear <- glm(report ~ avg.comp.non.enf + neg.comp.inspected.deviation + pos.comp.inspected.deviation + diff.comp.group.comp.prev + avg.oth.comp.prev + punished.prev.round + punished.prev.prev.round + peer.enf.rounds, na.action= na.exclude, data = filter(db.ind, hp == 0 & frame.nm =="Loco" & observer == 1 & overext_observed > 0), family = binomial(link = "probit"))
+
+report.ind.lp.oa <- glm(report ~ avg.comp.non.enf + neg.comp.inspected.deviation + pos.comp.inspected.deviation + diff.comp.group.comp.prev + avg.oth.comp.prev + punished.prev.round + punished.prev.prev.round + peer.enf.rounds, na.action= na.exclude, data = filter(db.ind, hp == 0 & frame.nm =="Hake" & observer == 1 & overext_observed > 0), family = binomial(link = "probit"))
+
+# Printing results 
+
+stargazer(report.ind.hp.cear, report.ind.hp.oa, report.ind.lp.cear, report.ind.lp.oa, type = 'html', digits = 2)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+### 5.d. Regressing individual reports on game variables (Probit with individual random effects)
+```{r running probit models for determinants of individual reports with random effects, echo = FALSE, results = 'asis', warnings = FALSE, messages = FALSE}
+
+# Running probits for determinants of individual reports following Cassari and Luini, 2009 with re
+
+report.ind.hp.cear.re <- glmer(report ~ avg.comp.non.enf + neg.comp.inspected.deviation + pos.comp.inspected.deviation + diff.comp.group.comp.prev + punished.prev.round + (1|id), na.action= na.exclude, data = filter(db.ind, hp == 1 & frame.nm =="Loco" & observer == 1 & overext_observed > 0), family = binomial(link = "probit"))
+
+report.ind.hp.oa.re <- glmer(report ~ avg.comp.non.enf + neg.comp.inspected.deviation + pos.comp.inspected.deviation + diff.comp.group.comp.prev + punished.prev.round + (1|id), na.action= na.exclude, data = filter(db.ind, hp == 1 & frame.nm =="Hake" & observer == 1 & overext_observed > 0), family = binomial(link = "probit"))
+
+report.ind.lp.cear.re <- glmer(report ~ avg.comp.non.enf + neg.comp.inspected.deviation + pos.comp.inspected.deviation + diff.comp.group.comp.prev + punished.prev.round + (1|id), na.action= na.exclude, data = filter(db.ind, hp == 0 & frame.nm =="Loco" & observer == 1 & overext_observed > 0), family = binomial(link = "probit"))
+
+report.ind.lp.oa.re <- glmer(report ~ avg.comp.non.enf + neg.comp.inspected.deviation + pos.comp.inspected.deviation + diff.comp.group.comp.prev + punished.prev.round + (1|id), na.action= na.exclude, data = filter(db.ind, hp == 0 & frame.nm =="Hake" & observer == 1 & overext_observed > 0), family = binomial(link = "probit"))
+
+# Printing results 
+
+stargazer(report.ind.hp.cear.re, report.ind.hp.oa.re, report.ind.lp.cear.re, report.ind.lp.oa.re, type = 'html', digits = 2)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
