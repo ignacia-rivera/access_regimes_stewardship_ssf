@@ -68,7 +68,7 @@ library(tidyverse)
 
 ```{r Importing raw experiment data, echo = FALSE, message=FALSE, warning=FALSE, include=FALSE}
 
-DB <- read_csv(here::here('Data/DB_fishers.csv'), col_names = T) 
+DB <- read_csv(here::here('data/DB_fishers.csv'), col_names = T) 
 
 
 # Generating variables
@@ -157,7 +157,7 @@ db.summary <- DB %>%
     Frame = frame.nm
   )
 
-ggplot(db.summary, aes(x=Stage, y= mean, fill= reorder(Frame, -mean))) + 
+bar_compliance <- ggplot(db.summary, aes(x=Stage, y= mean, fill= reorder(Frame, -mean))) + 
   geom_bar(stat='identity', width=0.5, position=position_dodge(0.6))+
   geom_errorbar(aes(x=as.factor(Stage), ymin = ci.low, ymax= ci.high), width=0.25, position=position_dodge(0.6), size = 0.4)+
   scale_fill_manual(values = c("royalblue3", "red1"), labels = c("CEAR (Loco)", "pseudo OA (Hake)"))+
@@ -175,7 +175,8 @@ ggplot(db.summary, aes(x=Stage, y= mean, fill= reorder(Frame, -mean))) +
         axis.title.y = element_text(margin = margin(t = 0, r = 8, b = 0, l = 0)), 
         axis.title.x = element_text(margin = margin(t = 8, r = 0, b = 0, l = 0)))
 
-#ggsave("Figure_bar_compliance.pdf", plot = bar_compliance, device = "pdf", path = here::here("Figures_and_tables"), scale = 1, width = 16, height = 12, units = "cm", dpi = 300, limitsize = TRUE)
+bar_compliance
+#ggsave("Fig1.pdf", plot = bar_compliance, device = "pdf", path = here::here("figures"), scale = 1, width = 16, height = 12, units = "cm", dpi = 300, limitsize = TRUE)
 
 ```
 
@@ -319,7 +320,7 @@ plot.low <- ggplot(subset(db.evol.plot, performance.nm == "Low performance"), ae
 evol.compliance <- gridExtra::grid.arrange(plot.high, plot.low, ncol = 2)
 
 evol.compliance
-#ggsave("Fig2.pdf", plot = compliance_stages, device = "pdf", path = here::here("Figures_and_tables"), scale = 1, width = 18, height = 12, units = "cm", dpi = 300, limitsize = TRUE)
+ggsave("Fig3.pdf", plot = evol.compliance, device = "pdf", path = here::here("figures"), scale = 1, width = 18, height = 12, units = "cm", dpi = 300, limitsize = TRUE)
 
 ```
 
@@ -376,7 +377,7 @@ db.punish.plot <- db.punish %>%
     Frame = frame.nm
   )
 
-ggplot(db.punish.plot, aes(x= Performance, y= mean, fill= reorder(Frame, -mean))) + 
+plot_report <- ggplot(db.punish.plot, aes(x= Performance, y= mean, fill= reorder(Frame, -mean))) + 
   geom_bar(stat='identity', width=0.5, position=position_dodge(0.6))+
   geom_errorbar(aes(x=as.factor(Performance), ymin = ci.low, ymax= ci.high), width=0.25, position=position_dodge(0.6), size = 0.4)+
   scale_fill_manual(values = c("royalblue3", "red1"), labels = c("CEAR (Loco)", "pseudo OA (Hake)"))+
@@ -394,323 +395,7 @@ ggplot(db.punish.plot, aes(x= Performance, y= mean, fill= reorder(Frame, -mean))
         axis.title.y = element_text(margin = margin(t = 0, r = 8, b = 0, l = 0)), 
         axis.title.x = element_text(margin = margin(t = 8, r = 0, b = 0, l = 0)))
 
-#ggsave("Figure_bar_compliance.pdf", plot = bar_compliance, device = "pdf", path = here::here("Figures_and_tables"), scale = 1, width = 16, height = 12, units = "cm", dpi = 300, limitsize = TRUE)
-
-
-```
-
-
-# Group level analysis
-
-## II. 1. Results compliance levels 
-
-### II. 1.a. Nonparametric tests for compliance levels
-```{r non-parametric comparisons of level extraction between treatments group level echo = FALSE, message=FALSE, warning=FALSE, include=FALSE}
-
-# Aggregating observations at the individual level 
-
-db.agg <- DB %>% 
-  group_by(frame.nm, performance.nm, stage.nm, group_id) %>% 
-  summarise(compliance= mean(compliance)) %>% 
-  select(-group_id) 
-
-# Testing significant differences between frames
-
-frame.comp <- db.agg %>%
-  group_by(performance.nm, stage.nm) %>% 
-  summarize(p.value = wilcox.test(compliance ~ frame.nm)$p.value)
-
-# Testing significant differences between performances 
-
-performance.comp <- db.agg %>% 
-  group_by(frame.nm, stage.nm) %>% 
-  summarize(p.value = wilcox.test(compliance ~ performance.nm)$p.value)
-
-# Testing significant differences between stages since observations are repeated it must be a paired test
-
-stages.comp <- db.agg %>% 
-  group_by(frame.nm, performance.nm) %>% 
-  summarize(p.value = wilcox.test(compliance ~ stage.nm, paired = T)$p.value)
-
-# Unifying outputs
-
-test.comp <- rbind(frame.comp, performance.comp, stages.comp) %>% 
-  select(performance= performance.nm, frame = frame.nm, stage= stage.nm, p.value) %>% 
-  mutate(sign.non.corrected = ifelse(p.value < 0.05,"*", ""), 
-         sign.corrected = ifelse(p.value < 0.05/12,"**", ""))  # Correcting for 12 hypotheses using Bonferroni
-
-gt(test.comp) %>% 
-   fmt_number(columns = vars(p.value), decimals = 3) %>% 
-  tab_header(
-    title = md("Nonparametric Wilcoxon rank-sum test to test differences in compliance levels"),
-    subtitle = "Significance level is ajusted using a Bonferroni correction for 12 hypotheses "
-  )
-
-```
-
-### 1.b. Mean compliance levels per treatment plot
-```{r bar plot mean compliance, echo = FALSE, message=FALSE, warning=FALSE}
-
-#stats_compliance <- read_csv(here::here('Data/summary_stats.csv'), col_names = T)
-#stats_compliance$Frame <- factor(stats_compliance$Frame, levels = c("Loco", "Hake"))
-
-db.summary <- DB %>% 
-  group_by(performance.nm, frame.nm, stage.nm, group_id) %>% 
-  summarise(mean.gr = mean(compliance)) %>% 
-  ungroup() %>% 
-  group_by(performance.nm, frame.nm, stage.nm) %>% 
-  summarise(mean = mean(mean.gr),
-          sd = sd(mean.gr),
-          n = length(mean.gr)) %>% 
-  mutate(error = qnorm(0.975)*(sd/sqrt(n)), 
-         ci.low = mean - error, 
-         ci.high = mean + error) %>% 
-  rename(
-    Stage = stage.nm,
-    Performance = performance.nm,
-    Frame = frame.nm
-  )
-
-ggplot(db.summary, aes(x=Stage, y= mean, fill= reorder(Frame, -mean))) + 
-  geom_bar(stat='identity', width=0.5, position=position_dodge(0.6))+
-  geom_errorbar(aes(x=as.factor(Stage), ymin = ci.low, ymax= ci.high), width=0.25, position=position_dodge(0.6), size = 0.4)+
-  scale_fill_manual(values = c("royalblue3", "red1"), labels = c("CEAR (Loco)", "pseudo OA (Hake)"))+
-  xlab(expression(bold("Stage")))+
-  ylab(expression(bold("Compliance (%)")))+
-  scale_y_continuous(expand = c(0, 0), limits=c(0,100), breaks=seq(0,100, by=20))+
-  facet_wrap(~Performance)+
-  #scale_x_discrete(labels=c("1" = "High-performance", "2" = "Low-performance"))+ 
-  theme_bw()+
-  theme(legend.position="bottom", legend.title=element_blank(), legend.text = element_text(size=10, margin = margin(t= 10, r= 0, b =0, l =0)), 
-        panel.grid = element_blank(), 
-        strip.text = element_text(size=11), 
-        axis.title = element_text(size = 12), 
-        axis.text = element_text(size = 11), 
-        axis.title.y = element_text(margin = margin(t = 0, r = 8, b = 0, l = 0)), 
-        axis.title.x = element_text(margin = margin(t = 8, r = 0, b = 0, l = 0)))
-
-#ggsave("Figure_bar_compliance.pdf", plot = bar_compliance, device = "pdf", path = here::here("Figures_and_tables"), scale = 1, width = 16, height = 12, units = "cm", dpi = 300, limitsize = TRUE)
-
-```
-
-## 2. Results compliance evolution
-
-### 2.a. Nonparametric tests for evolution of compliance
-```{r non-parametric comparisons of first and last rounds per treatment echo = FALSE, message=FALSE, warning=FALSE, include=FALSE}
-
-# Filtering only first and last round of nonenforced stage
-
-db.evol.nonenf <- DB %>% 
-  filter(round == 1|round == 10)
-
-# Testing significant differences between first and last round for each frame performance combination in nonenforced stage
-
-evol.nonenf <- db.evol.nonenf %>%
-  group_by(performance.nm, frame.nm) %>% 
-  summarize(p.value = wilcox.test(compliance ~ as.factor(round), paired = T)$p.value) %>% 
-  mutate(stage = "nonenforced")
-
-# Filtering only first and last round of peer-enforced stage
-
-db.evol.peerenf <- DB %>% 
-  filter(round == 11|round == 20)
-
-# Testing significant differences between first and last round for each frame performance combination in peer-enforced stage
-
-evol.peerenf <- db.evol.peerenf %>%
-  group_by(performance.nm, frame.nm) %>% 
-  summarize(p.value = wilcox.test(compliance ~ as.factor(round), paired = T)$p.value) %>% 
-  mutate(stage = "peer-enforced")
-
-# Unifying outputs
-
-test.evol <- rbind(evol.nonenf, evol.peerenf) %>% 
-  select(performance= performance.nm, frame = frame.nm, stage, p.value) %>% 
-  mutate(sign.non.corrected = ifelse(p.value < 0.05,"*", ""), 
-         sign.corrected = ifelse(p.value < 0.05/8,"**", "")) # Correcting for 12 hypotheses using Bonferroni
-
-gt(test.evol) %>% 
-   fmt_number(columns = vars(p.value), decimals = 3) %>% 
-  tab_header(
-    title = md("Nonparametric Wilcoxon rank-sum test to test evolution"),
-    subtitle = "Significance level is ajusted using a Bonferroni correction for 8 hypotheses "
-  )
-
-```
-
-### 2.b. Evolution plot
-
-```{r evolution plot by stage, echo = FALSE, message=FALSE, warning=FALSE, include=FALSE}
-
-# Generating variables
-
-db.evol.plot <- DB %>% 
-  mutate(stage.three = case_when(round == 1 ~ 'Early',
-                                 round == 2 ~ 'Early', 
-                                 round == 3 ~ 'Early',
-                                 round == 4 ~ 'Mid',
-                                 round == 5 ~ 'Mid',
-                                 round == 6 ~ 'Mid',
-                                 round == 7 ~ 'Mid',
-                                 round == 8 ~ 'Late',
-                                 round == 9 ~ 'Late',
-                                 round == 10 ~ 'Late',
-                                 round == 11 ~ 'Early',
-                                 round == 12 ~ 'Early', 
-                                 round == 13 ~ 'Early',
-                                 round == 14 ~ 'Mid',
-                                 round == 15 ~ 'Mid',
-                                 round == 16 ~ 'Mid',
-                                 round == 17 ~ 'Mid',
-                                 round == 18 ~ 'Late',
-                                 round == 19 ~ 'Late',
-                                 round == 20 ~ 'Late')) %>% 
-  group_by(performance.nm, frame.nm, stage.nm, stage.three) %>% 
-  summarize(mean.compliance = mean(compliance),
-            sd = sd(compliance),
-            n = length(compliance)) %>% 
-  ungroup() %>% 
-  mutate(error = qnorm(0.975)*(sd/sqrt(n)), 
-         ci.low = mean.compliance - error, 
-         ci.high = mean.compliance + error,
-         stage.three = factor(stage.three, levels = c("Early", "Mid", "Late")))
-
-plot.high <- ggplot(subset(db.evol.plot, performance.nm == "High performance"), aes(x= stage.three, y= mean.compliance, group=frame.nm)) +
-  geom_line(aes(col= frame.nm), size = 0.64) +
-  geom_point(aes(col = frame.nm), size = 1.3) +
-  geom_errorbar(aes(ymin=ci.low, ymax= ci.high, col = frame.nm), width= 0.28) +
-  scale_color_manual(values = c("red1", "royalblue3"), labels = c("pseudo OA (Hake)", "CEAR (Loco)"))+
-  scale_fill_manual(values = c("red1", "royalblue3"), labels = c("pseudo OA (Hake)", "CEAR (Loco)"))+
-  theme_bw() + 
-  ggtitle('High performance associations')+
-  xlab(expression(bold("Stage"))) +
-  ylab(expression(bold("Compliance (%)")))+
-  #scale_x_continuous(expand = c(0,0), breaks=c(seq(1,20,1)), labels = c(seq(0,9,1), seq(0,9,1)))+
-  scale_y_continuous(limits = c(0,100), breaks = c(seq(0,100,20)), expand = c(0,0))+
-  #geom_vline(xintercept=10.5, size=5.4, col= 'white')+
-  facet_wrap(~stage.nm)+
-  theme(legend.position="bottom", legend.title=element_blank(), legend.text =    element_text(size=11), panel.grid = element_blank(), plot.title = element_text(hjust = 0.5), panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
-  theme(panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        #strip.background = element_blank(),
-        strip.text = element_text(size= 10, hjust = 0, vjust = 1),
-        panel.border = element_rect(colour = "dark grey"), 
-        panel.spacing.x=unit(1, "lines"), 
-        axis.title.x = element_text(margin = margin(t = 10, r = 0, b = 0, l = 0)), 
-        #axis.title = element_text(size = 11), 
-        axis.title = element_blank(),
-        axis.text = element_text(size = 10),
-        plot.title = element_text(size= 11, face= "bold", hjust = 0, vjust = 1))
-
-plot.low <- ggplot(subset(db.evol.plot, performance.nm == "Low performance"), aes(x= stage.three, y= mean.compliance, group=frame.nm)) +
-  geom_line(aes(col= frame.nm), size = 0.64) +
-  geom_point(aes(col = frame.nm), size = 1.3) +
-  geom_errorbar(aes(ymin=ci.low, ymax= ci.high, col = frame.nm), width= 0.28) +
-  scale_color_manual(values = c("red1", "royalblue3"), labels = c("pseudo OA (Hake)", "CEAR (Loco)"))+
-  scale_fill_manual(values = c("red1", "royalblue3"), labels = c("pseudo OA (Hake)", "CEAR (Loco)"))+
-  theme_bw() + 
-  ggtitle('High performance associations')+
-  xlab(expression(bold("Stage"))) +
-  ylab(expression(bold("Compliance (%)")))+
-  #scale_x_continuous(expand = c(0,0), breaks=c(seq(1,20,1)), labels = c(seq(0,9,1), seq(0,9,1)))+
-  scale_y_continuous(limits = c(0,100), breaks = c(seq(0,100,20)), expand = c(0,0))+
-  #geom_vline(xintercept=10.5, size=5.4, col= 'white')+
-  facet_wrap(~stage.nm)+
-  theme(legend.position="bottom", legend.title=element_blank(), legend.text =    element_text(size=11),
-        panel.grid = element_blank(), plot.title = element_text(hjust = 0.5), panel.grid.major =
-          element_blank(), panel.grid.minor = element_blank())+
-  theme(panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank(),
-        #strip.background = element_blank(),
-        strip.text = element_text(size= 10, hjust = 0, vjust = 1),
-        panel.border = element_rect(colour = "dark grey"), 
-        panel.spacing.x=unit(1, "lines"), 
-        axis.title.x = element_text(margin = margin(t = 10, r = 0, b = 0, l = 0)), 
-        axis.title = element_blank(), 
-        axis.text = element_text(size = 10),
-        plot.title = element_text(size= 11, face= "bold", hjust = 0, vjust = 1))
-
-evol.compliance <- gridExtra::grid.arrange(plot.high, plot.low, ncol = 2)
-
-evol.compliance
-#ggsave("Fig2.pdf", plot = compliance_stages, device = "pdf", path = here::here("Figures_and_tables"), scale = 1, width = 18, height = 12, units = "cm", dpi = 300, limitsize = TRUE)
-
-```
-
-## 3. Results punishment
-
-### 3.a. Nonparametric test for punishment probability
-
-```{r non-parametric comparisons of punishment probability, echo = FALSE, message=FALSE, warning=FALSE, include=FALSE}
-
-# Filtering only first and last round of nonenforced stage
-
-db.punish <- DB %>% 
-  filter(round > 10) %>% 
-  mutate(punish.opportunity = ifelse(observer ==1 & overext_observed > 0, 1, 0)) %>% 
-  group_by(frame.nm, performance.nm, id) %>% 
-  summarise(prob.punish = sum(report, na.rm=T)/sum(punish.opportunity, na.rm=T)) %>% 
-  select(-id) %>% 
-  filter(!(prob.punish == 'NaN'))
-
-n.punish <- db.punish %>% 
-  group_by(frame.nm, performance.nm) %>% 
-  summarise(n = length(prob.punish))
-
-# Testing significant differences between first and last round for each frame performance combination in nonenforced stage
-
-test.punish <- db.punish %>%
-  group_by(performance.nm) %>% 
-  summarize(p.value = wilcox.test(prob.punish ~ as.factor(frame.nm))$p.value) %>% 
-  mutate(sign.non.corrected = ifelse(p.value < 0.05,"*", ""), 
-         sign.corrected = ifelse(p.value < 0.05/2,"**", ""))
-
-gt(test.punish) %>% 
-   fmt_number(columns = vars(p.value), decimals = 3) %>% 
-  tab_header(
-    title = md("Nonparametric Wilcoxon rank-sum test to test probability of punishment"),
-    subtitle = "Significance level is ajusted using a Bonferroni correction for 2 hypotheses "
-  )
-
-```
-
-### 3.b. Punishment plot
-
-```{r punishment plot, echo = FALSE, message=FALSE, warning=FALSE, include=FALSE}
-# Filtering only first and last round of nonenforced stage
-
-db.punish.plot <- db.punish %>% 
-  group_by(frame.nm, performance.nm) %>% 
-  summarise(mean = mean(prob.punish),
-          sd = sd(prob.punish),
-          n = length(prob.punish)) %>% 
-  mutate(error = qnorm(0.975)*(sd/sqrt(n)), 
-         ci.low = mean - error, 
-         ci.high = mean + error) %>% 
-  rename(
-    Performance = performance.nm,
-    Frame = frame.nm
-  )
-
-ggplot(db.punish.plot, aes(x= Performance, y= mean, fill= reorder(Frame, -mean))) + 
-  geom_bar(stat='identity', width=0.5, position=position_dodge(0.6))+
-  geom_errorbar(aes(x=as.factor(Performance), ymin = ci.low, ymax= ci.high), width=0.25, position=position_dodge(0.6), size = 0.4)+
-  scale_fill_manual(values = c("royalblue3", "red1"), labels = c("CEAR (Loco)", "pseudo OA (Hake)"))+
-  xlab(expression(bold("Performance")))+
-  ylab(expression(bold("Punishment probability")))+
-  scale_y_continuous(expand = c(0, 0), limits=c(0,1), breaks=seq(0,1, by=0.2))+
-  #facet_wrap(~Performance)+
-  #scale_x_discrete(labels=c("1" = "High-performance", "2" = "Low-performance"))+ 
-  theme_bw()+
-  theme(legend.position="bottom", legend.title=element_blank(), legend.text = element_text(size=10, margin = margin(t= 10, r= 0, b =0, l =0)), 
-        panel.grid = element_blank(), 
-        strip.text = element_text(size=11), 
-        axis.title = element_text(size = 12), 
-        axis.text = element_text(size = 11), 
-        axis.title.y = element_text(margin = margin(t = 0, r = 8, b = 0, l = 0)), 
-        axis.title.x = element_text(margin = margin(t = 8, r = 0, b = 0, l = 0)))
-
-#ggsave("Figure_bar_compliance.pdf", plot = bar_compliance, device = "pdf", path = here::here("Figures_and_tables"), scale = 1, width = 16, height = 12, units = "cm", dpi = 300, limitsize = TRUE)
+ggsave("Fig2.pdf", plot = plot_report, device = "pdf", path = here::here("figures"), scale = 1, width = 16, height = 12, units = "cm", dpi = 300, limitsize = TRUE)
 
 
 ```
