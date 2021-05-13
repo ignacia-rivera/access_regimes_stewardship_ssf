@@ -1,0 +1,10 @@
+name: Publish Document
+title:
+username:
+account: rpubs
+server: rpubs.com
+hostUrl: rpubs.com
+appId: https://api.rpubs.com/api/v1/document/713323/7708a6ebfec14be5bdf25e7b90f26d1c
+bundleId: https://api.rpubs.com/api/v1/document/713323/7708a6ebfec14be5bdf25e7b90f26d1c
+url: http://rpubs.com/ignacia-rivera/713323
+when: 1610663058.23717
